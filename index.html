@@ -1,0 +1,644 @@
+<!DOCTYPE html>
+<meta charset="UTF-8" />
+<title>Pixel Art Editor</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" />
+<link rel="stylesheet" href="css/style.css" />
+
+<!-- ======================================================================
+     Menu bar: File / Edit / Project / Effects / Palettes
+     ====================================================================== -->
+<div id="menu-bar">
+  <span class="brand">Pixel Art Editor</span>
+
+  <div class="menu">
+    <button class="menu-trigger">File</button>
+    <div class="menu-dropdown">
+      <button class="menu-item" data-action="new">New… <span class="shortcut"></span></button>
+      <button class="menu-item" data-action="open">Open…</button>
+      <button class="menu-item" data-action="import-frames">Import Frames (PNGs)&hellip;</button>
+      <button class="menu-item" data-action="import-spritesheet">Import Sprite Sheet&hellip;</button>
+      <div class="menu-divider"></div>
+      <button class="menu-item" data-action="export-png">Export as PNG</button>
+      <button class="menu-item" data-action="export-jpg">Export as JPG</button>
+    </div>
+  </div>
+
+  <div class="menu">
+    <button class="menu-trigger">Edit</button>
+    <div class="menu-dropdown">
+      <button class="menu-item" data-action="undo">Undo <span class="shortcut">Ctrl+Z</span></button>
+      <button class="menu-item" data-action="redo">Redo <span class="shortcut">Ctrl+Y</span></button>
+    </div>
+  </div>
+
+  <div class="menu">
+    <button class="menu-trigger">Project</button>
+    <div class="menu-dropdown">
+      <div class="menu-placeholder">Project-level settings coming soon.</div>
+    </div>
+  </div>
+
+  <div class="menu">
+    <button class="menu-trigger">Effects</button>
+    <div class="menu-dropdown">
+      <button class="menu-item" data-action="brightness-contrast">Brightness / Contrast&hellip;</button>
+      <button class="menu-item" data-action="hue-saturation">Hue / Saturation&hellip;</button>
+      <div class="menu-divider"></div>
+      <button class="menu-item" data-action="grayscale">Grayscale</button>
+      <button class="menu-item" data-action="invert">Invert Colors</button>
+    </div>
+  </div>
+
+  <div class="menu">
+    <button class="menu-trigger">Palettes</button>
+    <div class="menu-dropdown">
+      <button class="menu-item" data-action="palettes-manage">Manage…</button>
+      <button class="menu-item" data-action="palettes-save">Save palette set…</button>
+      <button class="menu-item" data-action="palettes-load">Load palette set…</button>
+    </div>
+  </div>
+</div>
+
+<div id="app-body">
+  <!-- ====================================================================
+       Toolbar: tool buttons + opacity slider + zoom
+       ==================================================================== -->
+  <div id="toolbar">
+    <div class="tool-group" role="group" aria-label="Tools">
+      <button class="tool-btn" data-tool="pencil" title="Pencil (B)">&#9998;</button>
+      <button class="tool-btn" data-tool="fill" title="Fill (G)">&#128167;</button>
+      <button class="tool-btn" data-tool="line" title="Line (L) — hold Shift to snap to 45°">
+        <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+          <line x1="5" y1="19" x2="19" y2="5" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" />
+        </svg>
+      </button>
+      <button class="tool-btn" data-tool="rect" title="Rectangle (U) — hold Shift for a perfect square">
+        <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+          <rect x="4" y="6" width="16" height="12" rx="1.5" fill="none" stroke="currentColor" stroke-width="2.2" />
+        </svg>
+      </button>
+      <button class="tool-btn" data-tool="ellipse" title="Ellipse (O) — hold Shift for a perfect circle">
+        <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+          <ellipse cx="12" cy="12" rx="8.5" ry="6" fill="none" stroke="currentColor" stroke-width="2.2" />
+        </svg>
+      </button>
+      <button class="tool-btn" data-tool="blender" title="Blender (M) — blends nearby colors together">
+        <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+          <circle cx="9.5" cy="12" r="6" fill="none" stroke="currentColor" stroke-width="1.8" />
+          <circle cx="14.5" cy="12" r="6" fill="none" stroke="currentColor" stroke-width="1.8" />
+        </svg>
+      </button>
+      <button class="tool-btn" data-tool="eraser" title="Eraser (K) — erases pixels back to transparent">
+        <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+          <rect x="5" y="11" width="14" height="7" rx="1.3" transform="rotate(-35 12 14.5)" fill="none" stroke="currentColor" stroke-width="2" />
+        </svg>
+      </button>
+      <button class="tool-btn" data-tool="mirror" title="Mirror Pen (F) — draws mirrored strokes along the X or Y axis">
+        <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+          <line x1="12" y1="3" x2="12" y2="21" stroke="currentColor" stroke-width="1.3" stroke-dasharray="2,2" />
+          <path d="M6 18 L9.5 15 L9.5 8 L6 5 Z" fill="currentColor" />
+          <path d="M18 18 L14.5 15 L14.5 8 L18 5 Z" fill="currentColor" />
+        </svg>
+      </button>
+      <button class="tool-btn" data-tool="select" title="Pixel Selection (S) — select pixels to cut/copy, within the layer or to a new one">
+        <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+          <rect x="4" y="4" width="16" height="16" rx="1" fill="none" stroke="currentColor" stroke-width="2" stroke-dasharray="3,2.5" />
+        </svg>
+      </button>
+      <button class="tool-btn" data-tool="rotate" title="Rotate Selection (T) — rotates the current selection with nearest-neighbor sampling">
+        <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+          <path d="M5 12a7 7 0 1 1 2.3 5.2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+          <path d="M3.8 15.6 L7 19 L9.6 15.1 Z" fill="currentColor" />
+        </svg>
+      </button>
+      <button class="tool-btn" data-tool="vbrush" title="V Brush (V) — the powerhouse brush: average-based palette picking, extendable with a Perlin noise + math + color-clamp pipeline">
+        <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+          <circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="1.6" />
+          <circle cx="9" cy="10" r="1.5" fill="currentColor" />
+          <circle cx="14" cy="9" r="1.5" fill="currentColor" />
+          <circle cx="15.5" cy="14" r="1.5" fill="currentColor" />
+          <circle cx="10" cy="15" r="1.5" fill="currentColor" />
+        </svg>
+      </button>
+    </div>
+
+    <!-- Shared by Pencil / Eraser / Mirror Pen: 1x1, 2x2, or 3x3 brush size.
+         Hidden unless one of those three tools is currently active. -->
+    <div class="tool-options" id="pen-size-options" hidden>
+      <label>Size</label>
+      <div class="segmented-group" role="group" aria-label="Pen size">
+        <button type="button" class="segmented-btn active" data-size="1" title="1×1 pixel">1</button>
+        <button type="button" class="segmented-btn" data-size="2" title="2×2 pixels">2</button>
+        <button type="button" class="segmented-btn" data-size="3" title="3×3 pixels">3</button>
+      </div>
+    </div>
+
+    <!-- Shape tools (Rectangle/Ellipse) only: outline vs. filled. Hidden
+         unless one of those two tools is currently active — see ui.js's
+         initToolOptions. -->
+    <div class="tool-options" id="shape-options" hidden>
+      <label class="shape-fill-label" for="shape-fill-checkbox">
+        <input type="checkbox" id="shape-fill-checkbox" />
+        Fill
+      </label>
+    </div>
+
+    <!-- Blender tool only: brush radius and blend strength. Hidden unless
+         the Blender tool is active. -->
+    <div class="tool-options" id="blender-options" hidden>
+      <label for="blender-radius">Radius</label>
+      <input id="blender-radius" type="range" min="1" max="12" value="3" />
+      <span id="blender-radius-value">3px</span>
+      <label for="blender-strength">Strength</label>
+      <input id="blender-strength" type="range" min="1" max="100" value="60" />
+      <span id="blender-strength-value">60%</span>
+    </div>
+
+    <!-- Mirror Pen only: which axis it mirrors across. -->
+    <div class="tool-options" id="mirror-options" hidden>
+      <label>Axis</label>
+      <div class="segmented-group" role="group" aria-label="Mirror axis">
+        <button type="button" class="segmented-btn active" id="mirror-axis-x" data-axis="x" title="Mirror left-right, across the vertical center line">X</button>
+        <button type="button" class="segmented-btn" id="mirror-axis-y" data-axis="y" title="Mirror top-bottom, across the horizontal center line">Y</button>
+      </div>
+    </div>
+
+    <!-- Pixel Selection only: clipboard + copy/cut to a brand-new layer.
+         Ctrl+C/X/V do ordinary same-layer copy/cut/paste — see ui.js. -->
+    <div class="tool-options" id="select-options" hidden>
+      <button type="button" class="btn" id="select-copy" title="Copy the selection (Ctrl+C)">Copy</button>
+      <button type="button" class="btn" id="select-cut" title="Cut the selection (Ctrl+X)">Cut</button>
+      <button type="button" class="btn" id="select-paste" title="Paste back onto this layer, at its original spot (Ctrl+V)">Paste</button>
+      <button type="button" class="btn" id="select-copy-new-layer" title="Copy the selection into a brand-new layer, in place">Copy to New Layer</button>
+      <button type="button" class="btn" id="select-cut-new-layer" title="Cut the selection into a brand-new layer, in place">Cut to New Layer</button>
+    </div>
+
+    <!-- Rotate Selection only: arbitrary-angle slider (make a selection
+         first with the Pixel Selection tool, then switch here). -->
+    <div class="tool-options" id="rotate-options" hidden>
+      <label for="rotate-angle">Angle</label>
+      <input id="rotate-angle" type="range" min="-180" max="180" value="0" />
+      <span id="rotate-angle-value">0&deg;</span>
+    </div>
+
+    <!-- V Brush only: dab radius, and a hard cap on how many distinct
+         colors (averaged down from the current Mix grid) it'll use per dab
+         — keeps output file size/palette size predictable. "Pipeline…"
+         opens the node editor (see vbrushPipeline.js / #vbrush-pipeline-dialog)
+         that can reshape that per-pixel color with Perlin noise, math, and
+         color-clamp nodes. -->
+    <div class="tool-options" id="vbrush-options" hidden>
+      <label for="vbrush-radius">Radius</label>
+      <input id="vbrush-radius" type="range" min="1" max="12" value="4" />
+      <span id="vbrush-radius-value">4px</span>
+      <label for="vbrush-colors">Colors</label>
+      <input id="vbrush-colors" type="range" min="2" max="15" value="8" />
+      <span id="vbrush-colors-value">8</span>
+      <button type="button" class="btn" id="vbrush-pipeline-open" title="Open the V Brush's node pipeline: Perlin noise, brick, wood grain, math, color ramp, palette pick, and color clamp nodes">Pipeline&hellip;</button>
+    </div>
+
+    <div class="opacity-control">
+      <label for="opacity-slider">Opacity</label>
+      <input id="opacity-slider" type="range" min="0" max="100" value="100" />
+      <span id="opacity-value">100%</span>
+    </div>
+
+    <div class="toolbar-spacer"></div>
+
+    <div class="zoom-control">
+      <button id="zoom-out" class="icon-btn" title="Zoom out (-)">&#8722;</button>
+      <span id="status-zoom">100%</span>
+      <button id="zoom-in" class="icon-btn" title="Zoom in (+)">&#43;</button>
+    </div>
+  </div>
+
+  <!-- ====================================================================
+       Reference bar: the three-way onion-skin switch (frame navigation
+       lives in the filmstrip below the canvas instead — see #filmstrip).
+       ==================================================================== -->
+  <div id="reference-bar">
+    <span class="reference-bar-label">Reference</span>
+
+    <div class="ref-mode-group" role="group" aria-label="Reference view">
+      <button class="ref-mode-btn active" data-mode="normal">Normal</button>
+      <button class="ref-mode-btn" data-mode="side">Side-by-side</button>
+      <button class="ref-mode-btn" data-mode="overlay">Overlay</button>
+    </div>
+
+    <div class="opacity-control" id="ref-opacity-row" hidden>
+      <div class="ref-target-group" role="group" aria-label="Overlay reference frame">
+        <button type="button" class="ref-target-btn active" data-target="prev" title="Onion-skin the previous frame — what it was">Prev</button>
+        <button type="button" class="ref-target-btn" data-target="next" title="Onion-skin the next frame — what it's becoming">Next</button>
+      </div>
+      <label for="ref-opacity-slider">Opacity</label>
+      <input id="ref-opacity-slider" type="range" min="0" max="100" value="40" />
+      <span id="ref-opacity-value">40%</span>
+    </div>
+  </div>
+
+  <div id="main-area">
+    <!-- ==================================================================
+         Sidebar: palette manager
+         ================================================================== -->
+    <aside id="sidebar">
+      <div class="sidebar-section">
+        <h2>Palette</h2>
+        <select id="palette-select" aria-label="Active palette"></select>
+        <div class="palette-actions">
+          <button class="btn" id="palette-new">New</button>
+          <button class="btn" id="palette-rename">Rename</button>
+          <button class="btn danger" id="palette-delete">Delete</button>
+        </div>
+      </div>
+
+      <div class="sidebar-section">
+        <h2>Colors</h2>
+        <div id="swatch-grid"></div>
+        <div class="add-color-row">
+          <input id="color-picker" type="color" value="#000000" aria-label="Pick a color" />
+          <input id="hex-input" type="text" value="#000000" maxlength="7" aria-label="Hex color value" />
+          <button class="btn primary" id="palette-add-color">Add</button>
+        </div>
+      </div>
+
+      <!-- ================================================================
+           Current color: the palette grid itself no longer highlights a
+           "selected" swatch — this is the one place that shows what you're
+           about to paint with. Updated by palette clicks, the History
+           strip, the eyedropper, and picking any cell in the Mix grid.
+           The eyedropper lives right here, next to the swatch it fills in.
+           ================================================================ -->
+      <div class="sidebar-section">
+        <h2>Current Color</h2>
+        <div class="current-color-display">
+          <span class="current-color-swatch-lg" id="current-color-swatch-lg"></span>
+          <span class="current-color-hex-lg" id="current-color-hex-lg">#000000</span>
+          <button type="button" class="icon-btn eyedropper-btn" id="eyedropper-btn" title="Eyedropper (I) — sample any color on screen" aria-label="Eyedropper">
+            <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+              <g transform="rotate(45 12 12)">
+                <rect x="10.4" y="3.5" width="3.2" height="12.5" rx="1.6" fill="currentColor" />
+                <circle cx="12" cy="4" r="3.1" fill="currentColor" />
+                <circle cx="12" cy="19.2" r="2.1" fill="none" stroke="currentColor" stroke-width="1.6" />
+              </g>
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- ================================================================
+           History: the most recently used colors, newest first. Only
+           records actual selections (palette clicks, the eyedropper,
+           picking a Mix grid cell) — never mix sets themselves, since
+           applying one doesn't change what you're painting with.
+           ================================================================ -->
+      <div class="sidebar-section">
+        <div class="sidebar-section-header">
+          <h2>History</h2>
+          <button type="button" class="history-clear-btn" id="color-history-clear" title="Clear color history">Clear</button>
+        </div>
+        <div class="color-history-track" id="color-history-track" role="group" aria-label="Recently used colors"></div>
+      </div>
+
+      <!-- ================================================================
+           Mix: a 3x3 grid centered on a "base" color (set by a palette
+           click, a History swatch, or the eyedropper — never by clicking
+           inside this grid). The 4 edge cells blend the base toward the
+           Top/Bottom/Left/Right modifier swatch; the 4 corners blend
+           toward the average of their two neighboring modifiers. Clicking
+           any cell sets the current drawing color without moving the
+           base. "Save as Mix Set…" stores the 4 modifiers + mix amount
+           into the active palette so the same recipe can be reapplied to
+           any base color later — see colorMixer.js / palette.js.
+           ================================================================ -->
+      <div class="sidebar-section">
+        <h2>Mix</h2>
+        <div class="mixer-frame">
+          <div class="mixer-corner"></div>
+          <input type="color" id="mix-mod-top" class="mixer-modifier" value="#ffffff" title="Top modifier color" />
+          <div class="mixer-corner"></div>
+
+          <input type="color" id="mix-mod-left" class="mixer-modifier" value="#ffffff" title="Left modifier color" />
+          <div class="mixer-3x3" id="mixer-3x3" role="group" aria-label="Mixed color choices"></div>
+          <input type="color" id="mix-mod-right" class="mixer-modifier" value="#000000" title="Right modifier color" />
+
+          <div class="mixer-corner"></div>
+          <input type="color" id="mix-mod-bottom" class="mixer-modifier" value="#000000" title="Bottom modifier color" />
+          <div class="mixer-corner"></div>
+        </div>
+
+        <div class="opacity-control mixer-slider-row">
+          <label for="mix-amount-slider">Mix</label>
+          <input id="mix-amount-slider" type="range" min="0" max="100" value="35" />
+          <span id="mix-amount-value">35%</span>
+        </div>
+        <div class="opacity-control mixer-slider-row">
+          <label for="mix-opacity-slider">Opacity</label>
+          <input id="mix-opacity-slider" type="range" min="0" max="100" value="100" />
+          <span id="mix-opacity-value">100%</span>
+        </div>
+
+        <button type="button" class="btn mixer-save-btn" id="mix-save-set">Save as Mix Set&hellip;</button>
+      </div>
+
+      <!-- ==============================================================
+           Layers: per-frame, bottom-to-top compositing stack. Tools
+           always paint on the ACTIVE layer (highlighted row); every
+           add/delete/reorder/visibility change is undoable, same as a
+           brush stroke — see app.js's "layers" section. Topmost in the
+           list = topmost/frontmost in the actual composited image.
+           ============================================================== -->
+      <div class="sidebar-section">
+        <div class="sidebar-section-header">
+          <h2>Layers</h2>
+          <button type="button" class="icon-btn" id="layer-add" title="Add a new blank layer above the active one" aria-label="Add layer">+</button>
+        </div>
+        <div id="layers-list" class="layers-list"></div>
+      </div>
+    </aside>
+
+    <!-- ==================================================================
+         Canvas + prev/next frame references. See referenceView.js: only
+         the panels/overlays relevant to the active mode are ever shown,
+         and none of them ever receive pointer input — they're look-only,
+         for lining up an animation, never editable.
+         ================================================================== -->
+    <div id="canvas-viewport">
+      <div id="canvas-stage">
+        <div class="ref-pane" id="ref-pane-prev" hidden>
+          <div class="ref-label">Prev</div>
+          <canvas id="ref-canvas-prev"></canvas>
+          <div class="ref-placeholder" id="ref-placeholder-prev">No previous frame</div>
+        </div>
+
+        <div class="canvas-stack" id="canvas-stack">
+          <canvas id="ref-canvas-prev-overlay" class="ref-overlay-canvas" hidden></canvas>
+          <canvas id="canvas"></canvas>
+          <canvas id="ref-canvas-next-overlay" class="ref-overlay-canvas" hidden></canvas>
+          <canvas id="selection-overlay-canvas" class="ref-overlay-canvas" hidden></canvas>
+        </div>
+
+        <div class="ref-pane" id="ref-pane-next" hidden>
+          <div class="ref-label">Next</div>
+          <canvas id="ref-canvas-next"></canvas>
+          <div class="ref-placeholder" id="ref-placeholder-next">No next frame</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================================================================
+       Filmstrip: numbered frame thumbnails, click to select. Hover the
+       thin gap before/between/after any frame to insert a blank frame or
+       a copy of the adjacent one right there. See filmstrip.js.
+       ================================================================== -->
+  <div id="filmstrip">
+    <div id="filmstrip-track"></div>
+  </div>
+</div>
+
+<!-- ========================================================================
+     Status bar: current color, opacity, zoom, cursor position
+     ======================================================================== -->
+<div id="status-bar">
+  <div class="status-item">
+    <span class="status-color-chip" id="current-color-swatch"></span>
+    <span id="current-color-hex">#000000</span>
+  </div>
+  <div class="status-item">Pixel: <span id="status-position">&mdash;</span></div>
+  <div class="status-spacer"></div>
+  <div class="status-item">Pixel Art Editor</div>
+</div>
+
+<!-- ========================================================================
+     Hidden file inputs (triggered programmatically from the menu)
+     ======================================================================== -->
+<input type="file" id="open-file-input" accept="image/png,image/jpeg" hidden />
+<input type="file" id="open-palette-input" accept="application/json,.json" hidden />
+<input type="file" id="import-frames-input" accept="image/png,image/jpeg" multiple hidden />
+<input type="file" id="import-spritesheet-input" accept="image/png,image/jpeg" hidden />
+
+<!-- ========================================================================
+     New Image dialog
+     ======================================================================== -->
+<dialog id="new-image-dialog">
+  <form id="new-image-form">
+    <h2>New Image</h2>
+    <div class="field-row">
+      <div class="field">
+        <label for="new-image-width">Width</label>
+        <input id="new-image-width" type="number" min="1" max="512" value="32" required />
+      </div>
+      <div class="field">
+        <label for="new-image-height">Height</label>
+        <input id="new-image-height" type="number" min="1" max="512" value="32" required />
+      </div>
+    </div>
+    <div class="dialog-actions">
+      <button type="button" class="btn" id="new-image-cancel">Cancel</button>
+      <button type="submit" class="btn primary">Create</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- ========================================================================
+     Import Sprite Sheet dialog — slices one already-loaded image (staged in
+     App._pendingSpriteSheet by loadSpriteSheetFile) into a grid of equally
+     sized frames. The preview canvas + red grid lines + "N × M = frames"
+     hint are all redrawn live by App.renderImportSheetPreview as Frame
+     Width/Height change, so what's about to be sliced is always visible
+     before committing. See App._openImportSpriteSheetDialog/
+     confirmImportSpriteSheet/cancelImportSpriteSheet.
+     ======================================================================== -->
+<dialog id="import-spritesheet-dialog">
+  <form id="import-sheet-form">
+    <h2>Import Sprite Sheet</h2>
+    <div class="import-sheet-preview-wrap">
+      <canvas id="import-sheet-preview-canvas"></canvas>
+    </div>
+    <div class="field-row">
+      <div class="field">
+        <label for="import-sheet-frame-width">Frame Width</label>
+        <input id="import-sheet-frame-width" type="number" min="1" max="2048" value="16" required />
+      </div>
+      <div class="field">
+        <label for="import-sheet-frame-height">Frame Height</label>
+        <input id="import-sheet-frame-height" type="number" min="1" max="2048" value="16" required />
+      </div>
+    </div>
+    <p class="import-sheet-hint" id="import-sheet-hint"></p>
+    <div class="dialog-actions">
+      <button type="button" class="btn" id="import-sheet-cancel">Cancel</button>
+      <button type="submit" class="btn primary">Import</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- ========================================================================
+     Export dialog — asks for a filename and format before saving. Where the
+     file actually LANDS depends on the browser: when the File System
+     Access API is available (most desktop Chromium browsers), Export opens
+     the OS's native Save dialog so the person also picks the LOCATION;
+     otherwise it falls back to the platform's `downloads` capability (when
+     hosted as a Claude Artifact) or a plain browser download (which uses
+     the browser's own configured downloads folder/prompt). See
+     App.promptExport/confirmExport and FileIO.exportImage.
+     ======================================================================== -->
+<dialog id="export-dialog">
+  <form id="export-form">
+    <h2>Export Image</h2>
+    <div class="field">
+      <label for="export-filename">Filename</label>
+      <input id="export-filename" type="text" value="pixel-art" maxlength="120" required />
+    </div>
+    <div class="field export-format-field">
+      <label>Format</label>
+      <div class="segmented-group" role="group" aria-label="Export format">
+        <button type="button" class="segmented-btn active" data-export-format="png">PNG</button>
+        <button type="button" class="segmented-btn" data-export-format="jpg">JPG</button>
+      </div>
+    </div>
+    <p class="export-hint" id="export-hint"></p>
+    <div class="dialog-actions">
+      <button type="button" class="btn" id="export-cancel">Cancel</button>
+      <button type="submit" class="btn primary">Export</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- ========================================================================
+     Brightness / Contrast dialog — live preview while dragging, Cancel
+     restores the pre-filter snapshot, Apply keeps whatever's previewed.
+     See app.js's openBrightnessContrastDialog/previewBrightnessContrast.
+     ======================================================================== -->
+<dialog id="brightness-contrast-dialog">
+  <h2>Brightness / Contrast</h2>
+  <div class="field-row">
+    <div class="field">
+      <label for="bc-brightness">Brightness</label>
+      <input id="bc-brightness" type="range" min="-100" max="100" value="0" />
+    </div>
+    <div class="field">
+      <label for="bc-contrast">Contrast</label>
+      <input id="bc-contrast" type="range" min="-100" max="100" value="0" />
+    </div>
+  </div>
+  <div class="dialog-actions">
+    <button type="button" class="btn" id="bc-cancel">Cancel</button>
+    <button type="button" class="btn primary" id="bc-apply">Apply</button>
+  </div>
+</dialog>
+
+<!-- ========================================================================
+     Hue / Saturation dialog — same live-preview shape as Brightness/Contrast.
+     See app.js's openHueSaturationDialog/previewHueSaturation.
+     ======================================================================== -->
+<dialog id="hue-saturation-dialog">
+  <h2>Hue / Saturation</h2>
+  <div class="field-row">
+    <div class="field">
+      <label for="hs-hue">Hue</label>
+      <input id="hs-hue" type="range" min="-180" max="180" value="0" />
+    </div>
+    <div class="field">
+      <label for="hs-saturation">Saturation</label>
+      <input id="hs-saturation" type="range" min="-100" max="100" value="0" />
+    </div>
+  </div>
+  <div class="dialog-actions">
+    <button type="button" class="btn" id="hs-cancel">Cancel</button>
+    <button type="button" class="btn primary" id="hs-apply">Apply</button>
+  </div>
+</dialog>
+
+<!-- ========================================================================
+     V Brush pipeline dialog — an ordered list of nodes (Perlin Noise, Brick
+     Texture, Wood Grain, Math, Color Ramp, Palette Pick, Color Clamp) that
+     reshape the color the V Brush paints at each pixel, plus a live preview
+     canvas so changes are visible immediately. The node list itself is
+     built entirely in JS (see vbrushPipeline.js's initVBrushPipelinePanel)
+     since it's variable-length; only this shell + the add-node controls +
+     the preview canvas are static markup.
+     ======================================================================== -->
+<dialog id="vbrush-pipeline-dialog">
+  <h2>V Brush Pipeline</h2>
+  <!-- Presets: save/load the WHOLE node list by name, stored in
+       localStorage (see vbrushPipeline.js's VBrushPresetStore) — same
+       "name it, reuse it later" idea as the Mix section's "Save as Mix
+       Set…", just for pipelines instead of color recipes. -->
+  <div class="vbrush-preset-row">
+    <span class="vbrush-preset-label">Preset</span>
+    <select id="vbrush-preset-select" aria-label="Saved V Brush preset">
+      <option value="">No saved presets</option>
+    </select>
+    <button type="button" class="btn" id="vbrush-preset-load-btn" title="Replace the current pipeline with the selected preset">Load</button>
+    <button type="button" class="btn danger" id="vbrush-preset-delete-btn" title="Delete the selected preset">Delete</button>
+    <button type="button" class="btn primary" id="vbrush-preset-save-btn" title="Save the current pipeline as a named preset">Save Preset&hellip;</button>
+  </div>
+  <div class="vbrush-preview">
+    <canvas id="vbrush-preview-canvas" width="96" height="96"></canvas>
+    <div class="vbrush-preview-info">
+      <span class="vbrush-preview-label">Live Preview</span>
+      <span class="vbrush-preview-caption">What the brush will paint, shown at full opacity so the texture is easy to read.</span>
+    </div>
+  </div>
+  <p class="vbrush-pipeline-hint" id="vbrush-pipeline-hint">
+    No nodes yet — the brush uses its default averaged-palette color picking. Add a node below to reshape it with Perlin noise, brick or wood-grain textures, math, a color ramp, or a color clamp.
+  </p>
+  <div id="vbrush-node-list" class="vbrush-node-list"></div>
+  <div class="vbrush-add-row">
+    <select id="vbrush-add-type" aria-label="Node type to add">
+      <option value="noise">Perlin Noise</option>
+      <option value="brick">Brick Texture</option>
+      <option value="wood">Wood Grain</option>
+      <option value="math">Math</option>
+      <option value="ramp">Color Ramp</option>
+      <option value="palette">Palette Pick</option>
+      <option value="clamp">Color Clamp</option>
+    </select>
+    <button type="button" class="btn" id="vbrush-add-node-btn">Add Node</button>
+  </div>
+  <div class="dialog-actions">
+    <button type="button" class="btn danger" id="vbrush-clear-pipeline" title="Empty the pipeline and go back to the brush's default color picking">Clear Output</button>
+    <button type="button" class="btn primary" id="vbrush-pipeline-close">Done</button>
+  </div>
+</dialog>
+
+<!-- ========================================================================
+     Scripts — order matters: each file attaches to window.PAE, and later
+     files (app.js last) depend on classes defined earlier.
+     ======================================================================== -->
+<script src="js/pixelBuffer.js"></script>
+<script src="js/geometry.js"></script>
+<script src="js/history.js"></script>
+<script src="js/palette.js"></script>
+<script src="js/colorMixer.js"></script>
+<script src="js/colorHistory.js"></script>
+<script src="js/layer.js"></script>
+<script src="js/spriteProject.js"></script>
+<script src="js/selection.js"></script>
+<script src="js/filters.js"></script>
+<script src="js/vbrushPipeline.js"></script>
+<script src="js/tools/tool.js"></script>
+<script src="js/tools/pencilTool.js"></script>
+<script src="js/tools/fillTool.js"></script>
+<script src="js/tools/eyedropperTool.js"></script>
+<script src="js/tools/lineTool.js"></script>
+<script src="js/tools/shapeTool.js"></script>
+<script src="js/tools/blenderTool.js"></script>
+<script src="js/tools/eraserTool.js"></script>
+<script src="js/tools/mirrorPenTool.js"></script>
+<script src="js/tools/pixelSelectionTool.js"></script>
+<script src="js/tools/rotateSelectionTool.js"></script>
+<script src="js/tools/vBrushTool.js"></script>
+<script src="js/toolManager.js"></script>
+<script src="js/canvasView.js"></script>
+<script src="js/referenceView.js"></script>
+<script src="js/fileIO.js"></script>
+<script src="js/menu.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/referenceBar.js"></script>
+<script src="js/filmstrip.js"></script>
+<script src="js/layersPanel.js"></script>
+<script src="js/selectionOverlay.js"></script>
+<script src="js/app.js"></script>
