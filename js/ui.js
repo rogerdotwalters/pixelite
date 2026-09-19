@@ -77,19 +77,27 @@ function initToolOptions(app) {
     pen: document.getElementById('pen-size-options'),
     mirror: document.getElementById('mirror-options'),
     select: document.getElementById('select-options'),
+    object: document.getElementById('object-options'),
     rotate: document.getElementById('rotate-options'),
+    scale: document.getElementById('scale-options'),
     vbrush: document.getElementById('vbrush-options'),
+    stamp: document.getElementById('stamp-options'),
+    smoothing: document.getElementById('smoothing-options'),
   };
   const VISIBILITY = {
     pencil: ['pen'],
     eraser: ['pen'],
     mirror: ['pen', 'mirror'],
+    smoothpencil: ['pen', 'smoothing'],
     rect: ['shape'],
     ellipse: ['shape'],
     blender: ['blender'],
     select: ['select'],
+    object: ['object'],
     rotate: ['rotate'],
+    scale: ['scale'],
     vbrush: ['vbrush'],
+    stamp: ['stamp'],
   };
 
   // ---- Shape (Rectangle/Ellipse): outline vs. filled ----
@@ -130,6 +138,16 @@ function initToolOptions(app) {
     });
   });
 
+  // ---- Pixel Selection: Rect/Layer/Object mode toggle ----
+  const selectModeButtons = Array.from(document.querySelectorAll('#select-options [data-select-mode]'));
+  selectModeButtons.forEach((btn) => {
+    btn.addEventListener('click', () => {
+      selectModeButtons.forEach((b) => b.classList.toggle('active', b === btn));
+      const tool = app.toolManager.getTool('select');
+      if (tool && tool.setMode) tool.setMode(btn.dataset.selectMode);
+    });
+  });
+
   // ---- Pixel Selection: clipboard + copy/cut to a brand-new layer ----
   document.getElementById('select-copy').addEventListener('click', () => app.copySelection());
   document.getElementById('select-cut').addEventListener('click', () => app.cutSelection());
@@ -141,11 +159,210 @@ function initToolOptions(app) {
   // every move (see RotateSelectionTool.applyAngle) ----
   const rotateAngle = document.getElementById('rotate-angle');
   const rotateAngleValue = document.getElementById('rotate-angle-value');
-  rotateAngle.addEventListener('input', () => {
-    rotateAngleValue.textContent = `${rotateAngle.value}°`;
+
+  function applyRotateAngle(degrees) {
     const tool = app.toolManager.getTool('rotate');
-    if (tool && tool.applyAngle) tool.applyAngle(app.toolCtx, Number(rotateAngle.value));
+    if (tool && tool.applyAngle) tool.applyAngle(app.toolCtx, degrees);
+  }
+
+  rotateAngle.addEventListener('input', () => {
+    rotateAngleValue.value = rotateAngle.value;
+    applyRotateAngle(Number(rotateAngle.value));
   });
+
+  // The number box (Round G) is the "hit Enter to apply an exact angle"
+  // path the slider alone couldn't offer. It also updates live as you type
+  // (matching the slider's own feel), but Enter is the explicit "I'm done,
+  // apply this" gesture: it clamps/rounds, re-applies, and blurs the field
+  // so it's visibly confirmed rather than left mid-edit.
+  rotateAngleValue.addEventListener('input', () => {
+    const v = Number(rotateAngleValue.value);
+    if (Number.isNaN(v)) return;
+    const clamped = Math.max(-180, Math.min(180, v));
+    rotateAngle.value = clamped;
+    applyRotateAngle(clamped);
+  });
+  rotateAngleValue.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    let v = Number(rotateAngleValue.value);
+    if (Number.isNaN(v)) v = Number(rotateAngle.value) || 0;
+    v = Math.max(-180, Math.min(180, Math.round(v)));
+    rotateAngleValue.value = v;
+    rotateAngle.value = v;
+    applyRotateAngle(v);
+    rotateAngleValue.blur();
+  });
+  rotateAngleValue.addEventListener('blur', () => {
+    let v = Number(rotateAngleValue.value);
+    if (Number.isNaN(v)) v = Number(rotateAngle.value) || 0;
+    v = Math.max(-180, Math.min(180, v));
+    rotateAngleValue.value = v;
+  });
+
+  // ---- Resize Selection: Smooth (any %) vs. Rigid (exact NxN pixel-block
+  // multiples) — see ResizeSelectionTool.applyScale. Only one of the two
+  // slider groups is shown at a time; whichever is visible drives the tool. ----
+  const scaleModeButtons = Array.from(document.querySelectorAll('#scale-options [data-scale-mode]'));
+  const scaleSmoothGroup = document.getElementById('scale-smooth-group');
+  const scaleRigidGroup = document.getElementById('scale-rigid-group');
+  const scalePercent = document.getElementById('scale-percent');
+  const scalePercentValue = document.getElementById('scale-percent-value');
+  const scaleRigidFactor = document.getElementById('scale-rigid-factor');
+  const scaleRigidValue = document.getElementById('scale-rigid-value');
+
+  function applyCurrentScale() {
+    const tool = app.toolManager.getTool('scale');
+    if (!tool || !tool.applyScale) return;
+    const rigid = scaleModeButtons.find((b) => b.classList.contains('active'))?.dataset.scaleMode === 'rigid';
+    const factor = rigid ? Number(scaleRigidFactor.value) : Number(scalePercent.value) / 100;
+    tool.applyScale(app.toolCtx, factor);
+  }
+
+  scaleModeButtons.forEach((btn) => {
+    btn.addEventListener('click', () => {
+      scaleModeButtons.forEach((b) => b.classList.toggle('active', b === btn));
+      const rigid = btn.dataset.scaleMode === 'rigid';
+      scaleSmoothGroup.hidden = rigid;
+      scaleRigidGroup.hidden = !rigid;
+      applyCurrentScale();
+    });
+  });
+  scalePercent.addEventListener('input', () => {
+    scalePercentValue.textContent = `${scalePercent.value}%`;
+    applyCurrentScale();
+  });
+  scaleRigidFactor.addEventListener('input', () => {
+    const n = Number(scaleRigidFactor.value);
+    scaleRigidValue.textContent = `1 pixel = ${n * n}`;
+    applyCurrentScale();
+  });
+
+  // ---- Stamp Brush: which grid the repeat locks to, and how a stamped
+  // cell interacts with whatever's already there — see tools/stampBrushTool.js
+  // for what each setting actually does; the stamp's own pixel content is
+  // edited in the separate Stamp Editor dialog (stampBrush.js). ----
+  const stampAnchorButtons = Array.from(document.querySelectorAll('#stamp-options [data-stamp-anchor]'));
+  stampAnchorButtons.forEach((btn) => {
+    btn.addEventListener('click', () => {
+      app.stampAnchorMode = btn.dataset.stampAnchor;
+      stampAnchorButtons.forEach((b) => b.classList.toggle('active', b === btn));
+    });
+  });
+  const stampBlendButtons = Array.from(document.querySelectorAll('#stamp-options [data-stamp-blend]'));
+  stampBlendButtons.forEach((btn) => {
+    btn.addEventListener('click', () => {
+      app.stampBlendMode = btn.dataset.stampBlend;
+      stampBlendButtons.forEach((b) => b.classList.toggle('active', b === btn));
+    });
+  });
+
+  // ---- Smoothing Pencil: which algorithm(s) run over the freehand stroke,
+  // and when — see js/lineSmoothing.js for what each setting does. The two
+  // Symmetric Curves checkboxes are independently toggleable (per Roger's
+  // "both toggleable" answer), so they're shown/hidden as a pair rather
+  // than swapped like Resize Selection's Smooth/Rigid slider groups. ----
+  const smoothingModeButtons = Array.from(document.querySelectorAll('#smoothing-options [data-smoothing-mode]'));
+  const smoothingSymmetricGroup = document.getElementById('smoothing-symmetric-group');
+  const smoothingEvenStepCheckbox = document.getElementById('smoothing-even-step');
+  const smoothingMirrorHalvesCheckbox = document.getElementById('smoothing-mirror-halves');
+  const smoothingTimingButtons = Array.from(document.querySelectorAll('#smoothing-options [data-smoothing-timing]'));
+  const smoothingPresetSelect = document.getElementById('smoothing-preset-select');
+  const smoothingPresetLoadBtn = document.getElementById('smoothing-preset-load-btn');
+  const smoothingPresetDeleteBtn = document.getElementById('smoothing-preset-delete-btn');
+  const smoothingPresetSaveBtn = document.getElementById('smoothing-preset-save-btn');
+
+  function syncSmoothingSymmetricVisibility() {
+    smoothingSymmetricGroup.hidden = app.smoothingMode === 'doubling';
+  }
+  smoothingModeButtons.forEach((btn) => {
+    btn.addEventListener('click', () => {
+      app.smoothingMode = btn.dataset.smoothingMode;
+      smoothingModeButtons.forEach((b) => b.classList.toggle('active', b === btn));
+      syncSmoothingSymmetricVisibility();
+    });
+  });
+  syncSmoothingSymmetricVisibility();
+
+  smoothingEvenStepCheckbox.addEventListener('change', () => {
+    app.smoothingEvenStep = smoothingEvenStepCheckbox.checked;
+  });
+  smoothingMirrorHalvesCheckbox.addEventListener('change', () => {
+    app.smoothingMirrorHalves = smoothingMirrorHalvesCheckbox.checked;
+  });
+
+  smoothingTimingButtons.forEach((btn) => {
+    btn.addEventListener('click', () => {
+      app.smoothingTiming = btn.dataset.smoothingTiming;
+      smoothingTimingButtons.forEach((b) => b.classList.toggle('active', b === btn));
+    });
+  });
+
+  /** Rebuilds the Preset dropdown's options from localStorage, keeping `preferId` selected if it's still there. */
+  function renderSmoothingPresetOptions(preferId) {
+    const presets = window.PAE.SmoothingPresetStore.list();
+    smoothingPresetSelect.innerHTML = '';
+    if (!presets.length) {
+      const opt = document.createElement('option');
+      opt.value = '';
+      opt.textContent = 'No saved presets';
+      smoothingPresetSelect.appendChild(opt);
+    } else {
+      presets.forEach((p) => {
+        const opt = document.createElement('option');
+        opt.value = p.id;
+        opt.textContent = p.name;
+        smoothingPresetSelect.appendChild(opt);
+      });
+      if (preferId && presets.some((p) => p.id === preferId)) smoothingPresetSelect.value = preferId;
+    }
+    const hasPresets = presets.length > 0;
+    smoothingPresetLoadBtn.disabled = !hasPresets;
+    smoothingPresetDeleteBtn.disabled = !hasPresets;
+  }
+
+  smoothingPresetLoadBtn.addEventListener('click', () => {
+    const id = smoothingPresetSelect.value;
+    if (!id) return;
+    const preset = window.PAE.SmoothingPresetStore.load(id);
+    if (!preset) {
+      renderSmoothingPresetOptions(); // it's gone (e.g. deleted elsewhere) — refresh rather than silently doing nothing
+      return;
+    }
+    app.smoothingMode = preset.mode;
+    app.smoothingEvenStep = preset.evenStep;
+    app.smoothingMirrorHalves = preset.mirrorHalves;
+    app.smoothingTiming = preset.timing;
+    smoothingModeButtons.forEach((b) => b.classList.toggle('active', b.dataset.smoothingMode === preset.mode));
+    smoothingTimingButtons.forEach((b) => b.classList.toggle('active', b.dataset.smoothingTiming === preset.timing));
+    smoothingEvenStepCheckbox.checked = preset.evenStep;
+    smoothingMirrorHalvesCheckbox.checked = preset.mirrorHalves;
+    syncSmoothingSymmetricVisibility();
+  });
+
+  smoothingPresetDeleteBtn.addEventListener('click', () => {
+    const id = smoothingPresetSelect.value;
+    if (!id) return;
+    const preset = window.PAE.SmoothingPresetStore.list().find((p) => p.id === id);
+    const label = preset ? preset.name : 'this preset';
+    if (!confirm(`Delete the "${label}" preset? This can't be undone.`)) return;
+    window.PAE.SmoothingPresetStore.remove(id);
+    renderSmoothingPresetOptions();
+  });
+
+  smoothingPresetSaveBtn.addEventListener('click', () => {
+    const name = prompt('Name this Smoothing Pencil preset:', 'Preset');
+    if (!name) return; // cancelled
+    const saved = window.PAE.SmoothingPresetStore.save(name, {
+      mode: app.smoothingMode,
+      evenStep: app.smoothingEvenStep,
+      mirrorHalves: app.smoothingMirrorHalves,
+      timing: app.smoothingTiming,
+    });
+    renderSmoothingPresetOptions(saved.id);
+  });
+
+  renderSmoothingPresetOptions();
 
   // ---- V Brush: dab radius + hard color-count limit, averaged down from
   // the current Mix grid (see VBrushTool / toolCtx.getMixColors). Its node
@@ -174,7 +391,20 @@ function initToolOptions(app) {
     // a leftover angle from a previous rotation never looks "already applied".
     if (app.toolManager.activeId === 'rotate') {
       rotateAngle.value = 0;
-      rotateAngleValue.textContent = '0°';
+      rotateAngleValue.value = 0;
+    }
+    // Resize Selection re-snapshots from the current selection every time
+    // it's (re)activated too (see ResizeSelectionTool.onActivate) — reset
+    // to Smooth/100% so a leftover slider position from a previous resize
+    // never looks "already applied" against the fresh snapshot.
+    if (app.toolManager.activeId === 'scale') {
+      scaleModeButtons.forEach((b) => b.classList.toggle('active', b.dataset.scaleMode === 'smooth'));
+      scaleSmoothGroup.hidden = false;
+      scaleRigidGroup.hidden = true;
+      scalePercent.value = 100;
+      scalePercentValue.textContent = '100%';
+      scaleRigidFactor.value = 1;
+      scaleRigidValue.textContent = '1 pixel = 1';
     }
   }
 
@@ -472,6 +702,15 @@ function initShortcuts(app) {
     const inTextField = /^(input|textarea)$/i.test(document.activeElement.tagName);
     if (inTextField) return; // don't hijack typing in the hex box, etc.
 
+    // Deselect — Roger: "I need a way to clear selection box, it gets
+    // stuck on the screen." Switching to a non-selection tool already
+    // clears it too (see toolManager.js's SELECTION_PRESERVING_TOOL_IDS),
+    // but this covers clearing it without having to switch tools at all.
+    if (e.key === 'Escape') {
+      app.selection.clear();
+      return;
+    }
+
     const meta = e.ctrlKey || e.metaKey;
     if (meta && e.key.toLowerCase() === 'z' && !e.shiftKey) {
       e.preventDefault();
@@ -538,11 +777,34 @@ function initShortcuts(app) {
       case 's':
         selectTool(app, 'select');
         break;
+      // Object: no mnemonic letter was left free by the time this tool was
+      // added (O/B/M/etc. all already taken) — same "just pick a free key"
+      // situation as Rectangle's U, Resize Selection's J, and Smoothing
+      // Pencil's H.
+      case 'y':
+        selectTool(app, 'object');
+        break;
       case 't':
         selectTool(app, 'rotate');
         break;
+      // Resize Selection: R/S/T were already taken (Overlay-target-toggle,
+      // Select, Rotate) by the time this tool was added — J is free and
+      // otherwise unused, same "no mnemonic left, just pick a free key"
+      // situation as Rectangle's U.
+      case 'j':
+        selectTool(app, 'scale');
+        break;
       case 'v':
         selectTool(app, 'vbrush');
+        break;
+      case 'p':
+        selectTool(app, 'stamp');
+        break;
+      // Smoothing Pencil: no mnemonic letter was left free by the time this
+      // tool was added (S/M/F/etc. all already taken) — same "just pick a
+      // free key" situation as Rectangle's U and Resize Selection's J.
+      case 'h':
+        selectTool(app, 'smoothpencil');
         break;
       // New blank frame (Q) / duplicate frame (E), always inserted right
       // after whichever frame is current — same as hovering the filmstrip's

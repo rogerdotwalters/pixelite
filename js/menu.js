@@ -64,6 +64,9 @@ function handleAction(action, app) {
     case 'import-spritesheet':
       app.importSpriteSheetFromDisk();
       break;
+    case 'resize-canvas':
+      app.promptResizeCanvas();
+      break;
     case 'export-png':
       app.promptExport('png');
       break;

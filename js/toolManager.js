@@ -8,6 +8,20 @@
  * See tools/tool.js for how to add a new tool.
  */
 
+/**
+ * Tool IDs whose whole point is reading/transforming the current pixel
+ * selection (see selection.js) — switching AWAY from one of these to any
+ * other tool (a plain drawing tool, the eyedropper, etc.) auto-clears the
+ * selection (see setActive below), so the marching-ants marquee — or the
+ * Object tool's own on-canvas handles — never lingers on screen once
+ * you've moved on to something else (Roger: "I need a way to clear
+ * selection box, it gets stuck on the screen"). Switching BETWEEN any two
+ * tools in this set leaves the selection alone, since chaining e.g.
+ * Object -> Resize Selection -> Rotate Selection on the same thing is a
+ * normal workflow that shouldn't lose your selection partway through.
+ */
+const SELECTION_PRESERVING_TOOL_IDS = new Set(['select', 'object', 'rotate', 'scale']);
+
 class ToolManager {
   constructor() {
     this.tools = new Map();
@@ -35,6 +49,13 @@ class ToolManager {
     this.activeId = id;
     const next = this.getActiveTool();
     if (next) next.onActivate(ctx);
+    // See SELECTION_PRESERVING_TOOL_IDS above — every entry point that
+    // switches tools (the toolbar, keyboard shortcuts, the eyedropper
+    // fallback) routes through here, so this is the one place that needs
+    // the check rather than duplicating it at each call site.
+    if (!SELECTION_PRESERVING_TOOL_IDS.has(id) && ctx && ctx.clearSelection) {
+      ctx.clearSelection();
+    }
     this._notify();
   }
 

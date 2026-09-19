@@ -3,9 +3,9 @@
  * ---------------------------------------------------------------------------
  * Rotates the CONTENTS of the current pixel selection (see the Pixel
  * Selection tool) in place, by an arbitrary angle set with the toolbar's
- * Angle slider (see ui.js's rotate-options panel) — not just 90° turns.
- * Every destination pixel inside the selection's bounding box is filled by
- * sampling the PRE-ROTATION snapshot at the inverse-rotated source
+ * Angle slider/number box (see ui.js's rotate-options panel) — not just 90°
+ * turns. Every destination pixel inside the selection's bounding box is
+ * filled by sampling a PRE-ROTATION source at the inverse-rotated source
  * coordinate, rounded to the nearest whole pixel (nearest-neighbor, never
  * smoothed/anti-aliased, matching this app's "always crisp" pixel-art
  * rendering). A source coordinate that lands outside the ORIGINAL
@@ -14,66 +14,73 @@
  * smear in unrelated pixels from outside the selection. The box itself
  * doesn't grow to fit a rotated diagonal silhouette, so corners can clip
  * past 45°-ish angles; that's an accepted simplification for a first pass.
+ * This tool also deliberately ignores a Layer/Object-mode selection's exact
+ * `.mask` shape — it always transforms the whole bounding box — a
+ * documented, separate known gap from the data-loss fix below.
  *
  * There's no dragging here — you make a selection with the Pixel Selection
- * tool FIRST, then switch to this tool to rotate it. Selecting happens via
- * onActivate: it snapshots the active layer's buffer once (also the single
- * `history.commit()` for the whole rotation, how many times the slider
- * moves), so every subsequent `applyAngle()` call re-derives the rotation
- * fresh from that ORIGINAL snapshot rather than compounding rounding error
- * from rotating an already-rotated result.
+ * tool FIRST, then switch to this tool to rotate it.
+ *
+ * Roger: "the program needs to save the original state of the thing being
+ * rotated to preserve data loss. So even at 180 deg, the original 0 deg
+ * object will remain to be the object that is actually being rotated."
+ * `onActivate` used to simply re-snapshot whatever pixels were CURRENTLY on
+ * the layer every time the tool was (re)activated — meaning switching away
+ * and back after rotating to, say, 90° would treat that already-rotated,
+ * already-resampled-and-corner-clipped result as the new "0°," silently
+ * compounding loss on every subsequent rotate. It now instead asks the
+ * active LAYER for `resolveRotationBase(sel)` (see layer.js), which hands
+ * back the object's actual pristine (never-rotated) pixels plus however far
+ * they've already been rotated — verified, not just assumed, so a
+ * selection someone painted on since the last rotate still starts fresh
+ * from what's really there rather than silently discarding that paint.
+ * Every `applyAngle(ctx, degrees)` call then re-derives the WHOLE result
+ * from that one pristine buffer at `origin.angle + degrees`, and re-stores
+ * the result back onto the layer — so scrubbing the slider back and forth
+ * (or leaving and coming back to rotate further) never compounds rounding
+ * error OR resampling/clipping loss, all the way back to angle zero.
  */
 
 class RotateSelectionTool extends window.PAE.Tool {
   constructor() {
     super('rotate', 'Rotate Selection', 'default');
-    this._snapshot = null;
     this._sel = null;
+    this._layer = null; // the Layer this rotation's rotationOrigin lives on
+    this._rotationBase = null; // {buffer, angle} to resample FROM — see Layer.resolveRotationBase
   }
 
   onActivate(ctx) {
     const sel = ctx.getSelection ? ctx.getSelection() : null;
+    const layer = sel && ctx.getActiveLayer ? ctx.getActiveLayer() : null;
     this._sel = sel || null;
-    this._snapshot = sel ? ctx.buffer.clone() : null;
+    this._layer = layer;
+    this._rotationBase = sel && layer ? layer.resolveRotationBase(sel) : null;
     if (sel) ctx.history.commit(); // one undo step for the whole rotation, however many times the slider moves
   }
 
   onDeactivate() {
-    this._snapshot = null;
     this._sel = null;
+    this._layer = null;
+    this._rotationBase = null;
   }
 
   hasSelection() {
     return !!this._sel;
   }
 
-  /** Re-applies rotation from scratch (against the original snapshot) at `degrees`. Called by the Angle slider's `input` handler. */
+  /** Re-applies rotation from scratch (against the pristine rotation-origin buffer, never the current possibly-already-rotated pixels) at a TOTAL angle of `origin.angle + degrees`. Called by the Angle slider/number box's handlers. */
   applyAngle(ctx, degrees) {
-    if (!this._snapshot || !this._sel) return;
+    if (!this._rotationBase || !this._sel) return;
     const buf = ctx.buffer;
     const sel = this._sel;
-    const snapshot = this._snapshot;
-    const cx = sel.x + sel.w / 2;
-    const cy = sel.y + sel.h / 2;
-    // Rotating the DESTINATION by `degrees` means looking up the SOURCE at
-    // the inverse (negative) rotation — standard inverse-mapping resample.
-    const rad = (-degrees * Math.PI) / 180;
-    const cos = Math.cos(rad);
-    const sin = Math.sin(rad);
-
-    for (let y = sel.y; y < sel.y + sel.h; y++) {
-      for (let x = sel.x; x < sel.x + sel.w; x++) {
-        const dx = x + 0.5 - cx;
-        const dy = y + 0.5 - cy;
-        const srcX = Math.floor(cx + dx * cos - dy * sin);
-        const srcY = Math.floor(cy + dx * sin + dy * cos);
-        let value = [0, 0, 0, 0];
-        if (srcX >= sel.x && srcX < sel.x + sel.w && srcY >= sel.y && srcY < sel.y + sel.h) {
-          value = snapshot.getPixel(srcX, srcY) || [0, 0, 0, 0];
-        }
-        buf.setPixel(x, y, value);
+    const totalAngle = this._rotationBase.angle + degrees;
+    const rotated = window.PAE.PixelBuffer.rotateLocal(this._rotationBase.buffer, totalAngle);
+    for (let ry = 0; ry < sel.h; ry++) {
+      for (let rx = 0; rx < sel.w; rx++) {
+        buf.setPixel(sel.x + rx, sel.y + ry, rotated.getPixel(rx, ry) || [0, 0, 0, 0]);
       }
     }
+    if (this._layer) this._layer.storeRotationBase(this._rotationBase.buffer, totalAngle);
     ctx.requestRender();
   }
 }

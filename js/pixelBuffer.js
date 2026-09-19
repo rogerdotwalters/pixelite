@@ -157,6 +157,182 @@ class PixelBuffer {
   }
 
   /**
+   * Tight bounding box of every pixel with alpha > 0 in `buf`, or `null` if
+   * the buffer is fully transparent. Used by the Pixel Selection tool's
+   * "Layer" mode to grab exactly what's actually drawn on the active layer
+   * rather than the whole (possibly mostly-empty) canvas.
+   */
+  static boundingBoxOfContent(buf) {
+    let minX = buf.width;
+    let minY = buf.height;
+    let maxX = -1;
+    let maxY = -1;
+    for (let y = 0; y < buf.height; y++) {
+      for (let x = 0; x < buf.width; x++) {
+        if (buf.data[buf.indexOf(x, y) + 3] > 0) {
+          if (x < minX) minX = x;
+          if (x > maxX) maxX = x;
+          if (y < minY) minY = y;
+          if (y > maxY) maxY = y;
+        }
+      }
+    }
+    if (maxX < minX) return null; // nothing painted at all
+    return { x: minX, y: minY, w: maxX - minX + 1, h: maxY - minY + 1 };
+  }
+
+  /**
+   * A 0/1 mask, row-major and sized `region.w * region.h`, marking which
+   * pixels within `region` are non-transparent in `buf` — the exact shape
+   * the Pixel Selection tool's "Layer" mode selects (paired with the
+   * bounding box from `boundingBoxOfContent`).
+   */
+  static alphaMask(buf, region) {
+    const mask = new Uint8Array(region.w * region.h);
+    for (let ry = 0; ry < region.h; ry++) {
+      for (let rx = 0; rx < region.w; rx++) {
+        mask[ry * region.w + rx] = buf.data[buf.indexOf(region.x + rx, region.y + ry) + 3] > 0 ? 1 : 0;
+      }
+    }
+    return mask;
+  }
+
+  /**
+   * A simple 4-connected flood fill ("magic wand") over every non-transparent
+   * pixel reachable from (startX, startY) — the Pixel Selection tool's
+   * "Object" mode. Returns `null` if the starting pixel itself is transparent
+   * (nothing there to select). Otherwise returns `{ region: {x,y,w,h}, mask }`:
+   * `region` is the tight bounding box of the WHOLE connected component, and
+   * `mask` (sized `region.w * region.h`) marks exactly which pixels within
+   * that box actually belong to it — so a non-rectangular shape's bounding
+   * box (which may overlap unrelated, unconnected artwork) never fools a
+   * downstream copy/cut/resize into touching more than the shape itself.
+   * Deliberately 4-connected (not 8-connected): two pixels that only touch
+   * diagonally are treated as separate objects, which matches how most
+   * pixel art is actually drawn (diagonal-only contact is usually two
+   * distinct shapes just grazing corners, not one shape).
+   */
+  static floodSelect(buf, startX, startY) {
+    if (!buf.inBounds(startX, startY) || buf.data[buf.indexOf(startX, startY) + 3] === 0) return null;
+    const w = buf.width;
+    const h = buf.height;
+    const visited = new Uint8Array(w * h);
+    const stack = [[startX, startY]];
+    visited[startY * w + startX] = 1;
+    let minX = startX;
+    let maxX = startX;
+    let minY = startY;
+    let maxY = startY;
+    while (stack.length) {
+      const [x, y] = stack.pop();
+      if (x < minX) minX = x;
+      if (x > maxX) maxX = x;
+      if (y < minY) minY = y;
+      if (y > maxY) maxY = y;
+      const neighbors = [
+        [x + 1, y],
+        [x - 1, y],
+        [x, y + 1],
+        [x, y - 1],
+      ];
+      for (const [nx, ny] of neighbors) {
+        if (!buf.inBounds(nx, ny)) continue;
+        const idx = ny * w + nx;
+        if (visited[idx]) continue;
+        if (buf.data[buf.indexOf(nx, ny) + 3] === 0) continue;
+        visited[idx] = 1;
+        stack.push([nx, ny]);
+      }
+    }
+    const region = { x: minX, y: minY, w: maxX - minX + 1, h: maxY - minY + 1 };
+    const mask = new Uint8Array(region.w * region.h);
+    for (let y = region.y; y < region.y + region.h; y++) {
+      for (let x = region.x; x < region.x + region.w; x++) {
+        if (visited[y * w + x]) mask[(y - region.y) * region.w + (x - region.x)] = 1;
+      }
+    }
+    return { region, mask };
+  }
+
+  /**
+   * Renders a rotated + translated copy of `source`'s content into `dest`
+   * (must be the same pixel dimensions), nearest-neighbor, the same
+   * inverse-mapping approach as RotateSelectionTool.applyAngle: for every
+   * pixel of `dest`, undo the translation, undo the rotation around
+   * (pivotX, pivotY), and sample `source` there. A `dest` pixel whose
+   * sample lands outside `source`'s bounds — or lands ON a transparent
+   * source pixel — is left EXACTLY AS IT WAS, never cleared to transparent.
+   * That's deliberate: it's what lets the Layer Array feature (see
+   * App.renderLayerArrayPreview) call this once per copy into the SAME
+   * shared preview buffer and have every copy show up together, instead of
+   * each call erasing the ones drawn before it. Baking the real array (see
+   * App.confirmLayerArray) calls this once per copy too, but into a
+   * brand-new blank buffer each time, so there's nothing for it to
+   * preserve there anyway.
+   * @param {PixelBuffer} dest
+   * @param {PixelBuffer} source
+   * @param {{pivotX: number, pivotY: number, angleDeg: number, dx: number, dy: number}} opts
+   */
+  static transformInto(dest, source, { pivotX, pivotY, angleDeg, dx, dy }) {
+    const rad = (-angleDeg * Math.PI) / 180;
+    const cos = Math.cos(rad);
+    const sin = Math.sin(rad);
+    for (let y = 0; y < dest.height; y++) {
+      for (let x = 0; x < dest.width; x++) {
+        // Undo the translation, then undo the rotation around the pivot —
+        // same order/sign convention as RotateSelectionTool.applyAngle.
+        const ux = x - dx + 0.5 - pivotX;
+        const uy = y - dy + 0.5 - pivotY;
+        const srcX = Math.floor(pivotX + ux * cos - uy * sin);
+        const srcY = Math.floor(pivotY + ux * sin + uy * cos);
+        if (!source.inBounds(srcX, srcY)) continue;
+        const p = source.getPixel(srcX, srcY);
+        if (!p || p[3] === 0) continue;
+        dest.setPixel(x, y, p);
+      }
+    }
+  }
+
+  /**
+   * Rotates `source`'s own content by `angleDeg` around ITS OWN center,
+   * returning a brand-new PixelBuffer of the SAME width/height — a small
+   * wrapper around `transformInto` with the pivot fixed at the buffer's
+   * own center and no translation. This is what lets a rotate tool always
+   * re-derive "the object at angle N" fresh from a single pristine,
+   * never-rotated source buffer instead of re-rotating an already-rotated
+   * (and therefore already slightly resampled/clipped) result — see
+   * `Layer.resolveRotationBase` in layer.js for why that matters.
+   * @param {PixelBuffer} source
+   * @param {number} angleDeg
+   */
+  static rotateLocal(source, angleDeg) {
+    const dest = PixelBuffer.createBlank(source.width, source.height);
+    PixelBuffer.transformInto(dest, source, {
+      pivotX: source.width / 2,
+      pivotY: source.height / 2,
+      angleDeg,
+      dx: 0,
+      dy: 0,
+    });
+    return dest;
+  }
+
+  /**
+   * Byte-for-byte RGBA comparison of two same-sized buffers — `false` on a
+   * size mismatch too. Used by `Layer.resolveRotationBase` to verify a
+   * stored rotation origin is still trustworthy (nothing else has painted
+   * over the object since) before trusting it over the object's current,
+   * possibly-already-rotated pixels.
+   */
+  static equalPixels(a, b) {
+    if (a.width !== b.width || a.height !== b.height) return false;
+    for (let i = 0; i < a.data.length; i++) {
+      if (a.data[i] !== b.data[i]) return false;
+    }
+    return true;
+  }
+
+  /**
    * Flattens an array of layers (see layer.js) into one PixelBuffer, bottom
    * to top, via standard "source-over" alpha compositing — this is what
    * actually turns a stack of layers into "the picture": the main canvas,

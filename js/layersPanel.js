@@ -2,9 +2,15 @@
  * layersPanel.js
  * ---------------------------------------------------------------------------
  * The sidebar's Layers section: add, delete, reorder (move up/down),
- * show/hide, rename, and pick the active layer, for the CURRENT frame. Every
- * action delegates straight to an App method (see app.js's "layers"
- * section) — this file only builds/rebuilds the DOM.
+ * show/hide, rename, toggle "acts as object", and pick the active layer,
+ * for the CURRENT frame. Every action delegates straight to an App method
+ * (see app.js's "layers" section) — this file only builds/rebuilds the DOM.
+ *
+ * The new first icon in each row (◆) is `layer.actAsObject` (see layer.js):
+ * toggling it on both flips the flag AND makes that row's layer active,
+ * which auto-selects the layer's whole footprint (App.setActiveLayer) —
+ * one click to get a layer ready for the Layer Array tool (see the Layers
+ * header's "Array…" button, wired in App.promptLayerArray).
  *
  * Rendered TOP-TO-BOTTOM in on-screen stacking order (the topmost, last-
  * composited layer appears at the TOP of the list, matching every other
@@ -23,6 +29,20 @@ function initLayersPanel(app) {
     row.className = 'layer-row' + (index === frame.activeLayerIndex ? ' active' : '');
     row.title = `${layer.name} — click to make this the active layer`;
     row.addEventListener('click', () => app.setActiveLayer(index));
+
+    const objectBtn = document.createElement('button');
+    objectBtn.type = 'button';
+    objectBtn.className = 'layer-object-btn' + (layer.actAsObject ? ' active' : '');
+    objectBtn.textContent = '◆';
+    objectBtn.title = layer.actAsObject
+      ? 'Acts as object — becoming active auto-selects its whole footprint (click to turn off)'
+      : 'Act as object — becoming active will auto-select its whole footprint, ready for the Layer Array tool';
+    objectBtn.setAttribute('aria-label', objectBtn.title);
+    objectBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      app.toggleActsAsObject(index);
+    });
+    row.appendChild(objectBtn);
 
     const visBtn = document.createElement('button');
     visBtn.type = 'button';

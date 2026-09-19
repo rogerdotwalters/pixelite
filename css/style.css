@@ -242,6 +242,17 @@ select:focus-visible,
   gap: 4px;
 }
 
+/* A thin visible separator between the toolbar's tool groups (Draw / Paint
+   / Select & Transform / Advanced Brushes — see index.html's toolbar
+   comment) — the whole point of the reorganization pass was to make each
+   group visually distinct at a glance, not just to add whitespace. */
+.toolbar-divider {
+  width: 1px;
+  height: 24px;
+  background: var(--border);
+  flex: none;
+}
+
 .tool-btn {
   width: 34px;
   height: 34px;
@@ -295,6 +306,28 @@ select:focus-visible,
   width: 70px;
 }
 
+/* Rotate Selection's editable angle box (Round G) — lets you type an exact
+   degree value instead of only dragging the slider; Enter applies it (see
+   ui.js's rotate-angle-value keydown handler). Narrow and inline with the
+   ° suffix so it reads like the plain "0°" label it replaced. */
+.angle-input-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.angle-number-input {
+  width: 3.2em;
+  padding: 2px 4px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--surface-alt);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  text-align: right;
+}
+
 .shape-fill-label {
   display: flex;
   align-items: center;
@@ -344,6 +377,34 @@ select:focus-visible,
   flex: none;
   padding: 5px 9px;
   font-size: 11px;
+}
+
+/* Resize Selection: the Smooth/Rigid segmented toggle shows exactly one of
+   these two little label+slider+value groups at a time (see ui.js's
+   initToolOptions) — same [hidden]-override reasoning as .tool-options
+   itself, since a plain `hidden` attribute alone would already work here,
+   but keeping the override makes the intent explicit alongside its sibling. */
+.scale-slider-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.scale-slider-group[hidden] {
+  display: none;
+}
+
+/* Smoothing Pencil: the "Even Step Pattern"/"Mirror Halves" checkbox pair,
+   shown only while Symmetric Curves mode (or Both) is selected — same
+   [hidden]-override reasoning as .scale-slider-group above. */
+.smoothing-symmetric-group {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.smoothing-symmetric-group[hidden] {
+  display: none;
 }
 
 #opacity-value {
@@ -515,6 +576,14 @@ select:focus-visible,
 
 .sidebar-section-header h2 {
   margin: 0;
+}
+
+/* Groups the Layers header's two icon buttons ("Array…" + "+") together at
+   the row's right edge, instead of .sidebar-section-header's own
+   space-between spreading a 3rd flex child out into the middle. */
+.layers-header-actions {
+  display: flex;
+  gap: 6px;
 }
 
 .history-clear-btn {
@@ -812,6 +881,32 @@ select:focus-visible,
 .layer-row.active {
   border-color: var(--accent-2);
   box-shadow: 0 0 0 1px var(--focus-ring);
+}
+
+/* The ◆ "acts as object" toggle (see layer.js/layersPanel.js) — same
+   footprint/family as .layer-visibility-btn below, just with its own
+   accent color when on so it's visually distinct from the visibility dot. */
+.layer-object-btn {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  border: none;
+  background: none;
+  color: var(--text-dim);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+  opacity: 0.4;
+}
+
+.layer-object-btn:hover {
+  opacity: 0.75;
+}
+
+.layer-object-btn.active {
+  color: var(--accent);
+  opacity: 1;
 }
 
 .layer-visibility-btn {
@@ -1253,6 +1348,57 @@ dialog h2 {
   margin-top: 2px;
 }
 
+/* Stamp Brush toolbar strip: the live 2x2-tiled thumbnail next to
+   "Edit Stamp…" — fixed CSS size regardless of the stamp's own pixel
+   resolution (see stampBrush.js's renderStampThumb, which sizes the
+   canvas's drawing buffer differently depending on the stamp's dimensions;
+   this keeps its ON-SCREEN size constant either way). */
+.stamp-thumb {
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  image-rendering: pixelated;
+  flex: none;
+}
+
+/* Stamp Editor dialog */
+#stamp-editor-dialog {
+  width: min(340px, 92vw);
+}
+
+.stamp-edit-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 10px 0;
+}
+
+.stamp-editor-canvas-wrap {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  margin-bottom: 10px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-alt);
+}
+
+#stamp-editor-canvas {
+  image-rendering: pixelated;
+  border: 1px solid var(--border);
+  cursor: crosshair;
+}
+
+.stamp-editor-hint {
+  margin: 0 0 14px;
+  font-size: 11px;
+  color: var(--text-dim);
+  line-height: 1.4;
+}
+
 #import-spritesheet-dialog {
   width: min(360px, 92vw);
 }
@@ -1286,6 +1432,99 @@ dialog h2 {
   font-size: 11px;
   color: var(--text-dim);
   font-style: italic;
+}
+
+/* Resize Canvas dialog: a 3x3 grid of anchor buttons (Photoshop-style
+   "Canvas Size" anchor picker) choosing where existing artwork sits within
+   the new width/height — see App.resizeCanvas/_anchorOffset. */
+.anchor-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 28px);
+  grid-template-rows: repeat(3, 28px);
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.anchor-btn {
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface-alt);
+  cursor: pointer;
+  position: relative;
+  padding: 0;
+}
+
+.anchor-btn::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-dim);
+  transform: translate(-50%, -50%);
+}
+
+.anchor-btn.active {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.anchor-btn.active::after {
+  background: #fff;
+}
+
+/* Layer Array dialog: same preview-canvas treatment as Import Sprite
+   Sheet's (see .import-sheet-preview-wrap/#import-sheet-preview-canvas
+   above), plus a slider+value-label row per field (Count/Distance/
+   Rotation/Position X/Y) — same family as .tool-options' inline sliders,
+   just stacked one per .field instead of side-by-side in a toolbar strip. */
+#layer-array-dialog {
+  width: min(320px, 92vw);
+}
+
+#layer-array-dialog .field {
+  margin-bottom: 12px;
+}
+
+#layer-array-preview-canvas {
+  max-width: 100%;
+  image-rendering: pixelated;
+  border: 1px solid var(--border);
+}
+
+.slider-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.slider-row input[type='range'] {
+  flex: 1;
+}
+
+.slider-row span {
+  flex: none;
+  min-width: 34px;
+  text-align: right;
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--text-dim);
+}
+
+.layer-array-hint {
+  margin: 8px 0 14px;
+  font-size: 11px;
+  color: var(--text-dim);
+  line-height: 1.4;
+}
+
+.resize-canvas-hint {
+  margin: 8px 0 14px;
+  font-size: 11px;
+  color: var(--text-dim);
+  line-height: 1.4;
 }
 
 /* ---- V Brush pipeline dialog ---- */

@@ -82,6 +82,26 @@ class CanvasView {
     const y = Math.floor((contentY * scaleY) / this.zoom);
     return { x, y };
   }
+
+  /**
+   * Same math as eventToPixel, but WITHOUT the final Math.floor — returns
+   * fractional image-pixel coordinates. Ordinary tools never need this
+   * (a brush stroke always targets one whole pixel), but the Object tool
+   * (tools/objectTool.js) does: it hit-tests small on-canvas handles by a
+   * fixed number of SCREEN pixels' tolerance, which only translates to a
+   * consistent image-pixel tolerance (tolerance / zoom) if the underlying
+   * mouse position isn't already rounded away first.
+   */
+  eventToFractionalPixel(evt) {
+    const rect = this.canvas.getBoundingClientRect();
+    const contentX = evt.clientX - rect.left - this.canvas.clientLeft;
+    const contentY = evt.clientY - rect.top - this.canvas.clientTop;
+    const scaleX = this.canvas.width / this.canvas.clientWidth;
+    const scaleY = this.canvas.height / this.canvas.clientHeight;
+    const x = (contentX * scaleX) / this.zoom;
+    const y = (contentY * scaleY) / this.zoom;
+    return { x, y };
+  }
 }
 
 /**

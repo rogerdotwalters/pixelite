@@ -35,7 +35,7 @@
   <div class="menu">
     <button class="menu-trigger">Project</button>
     <div class="menu-dropdown">
-      <div class="menu-placeholder">Project-level settings coming soon.</div>
+      <button class="menu-item" data-action="resize-canvas">Resize Canvas&hellip;</button>
     </div>
   </div>
 
@@ -65,9 +65,26 @@
        Toolbar: tool buttons + opacity slider + zoom
        ==================================================================== -->
   <div id="toolbar">
-    <div class="tool-group" role="group" aria-label="Tools">
+    <!-- Four groups, separated by a visible divider (.toolbar-divider) —
+         a Roger-requested reorganization pass. Grouped by what the tool
+         IS rather than the order tools happened to be added in, so a
+         tool that looks similar to another (Pixel Selection's dashed
+         rectangle vs. the plain Rectangle tool's solid one, easy to mix
+         up when everything was one long undifferentiated row) is now at
+         least in an obviously different section:
+           1. Draw       — freehand + basic shapes
+           2. Paint       — fills/erases/effects on existing pixels
+           3. Select & Transform — make/grab an object, then move/rotate/scale it
+           4. Advanced Brushes — the generative, multi-setting brushes
+         Order WITHIN each group is unchanged from before, so existing
+         muscle memory for "which one is that" mostly still holds. -->
+    <div class="tool-group" role="group" aria-label="Draw">
       <button class="tool-btn" data-tool="pencil" title="Pencil (B)">&#9998;</button>
-      <button class="tool-btn" data-tool="fill" title="Fill (G)">&#128167;</button>
+      <button class="tool-btn" data-tool="smoothpencil" title="Smoothing Pencil (H) — runs corner/curve-smoothing algorithms over a freehand stroke as you draw it">
+        <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+          <path d="M4 17 Q9 8 12 13 Q15 18 20 7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+        </svg>
+      </button>
       <button class="tool-btn" data-tool="line" title="Line (L) — hold Shift to snap to 45°">
         <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
           <line x1="5" y1="19" x2="19" y2="5" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" />
@@ -83,6 +100,12 @@
           <ellipse cx="12" cy="12" rx="8.5" ry="6" fill="none" stroke="currentColor" stroke-width="2.2" />
         </svg>
       </button>
+    </div>
+
+    <div class="toolbar-divider" aria-hidden="true"></div>
+
+    <div class="tool-group" role="group" aria-label="Paint">
+      <button class="tool-btn" data-tool="fill" title="Fill (G)">&#128167;</button>
       <button class="tool-btn" data-tool="blender" title="Blender (M) — blends nearby colors together">
         <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
           <circle cx="9.5" cy="12" r="6" fill="none" stroke="currentColor" stroke-width="1.8" />
@@ -101,17 +124,38 @@
           <path d="M18 18 L14.5 15 L14.5 8 L18 5 Z" fill="currentColor" />
         </svg>
       </button>
+    </div>
+
+    <div class="toolbar-divider" aria-hidden="true"></div>
+
+    <div class="tool-group" role="group" aria-label="Select and transform">
       <button class="tool-btn" data-tool="select" title="Pixel Selection (S) — select pixels to cut/copy, within the layer or to a new one">
         <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
           <rect x="4" y="4" width="16" height="16" rx="1" fill="none" stroke="currentColor" stroke-width="2" stroke-dasharray="3,2.5" />
         </svg>
       </button>
-      <button class="tool-btn" data-tool="rotate" title="Rotate Selection (T) — rotates the current selection with nearest-neighbor sampling">
+      <button class="tool-btn" data-tool="object" title="Select Object (Y) — click any object pixel to select and drag to move it; drag a corner/edge handle to resize, drag the top handle to rotate. Works on any layer flagged 'Acts as Object' (the Layers panel's ◆ icon) or freshly pasted content — see tools/objectTool.js">
+        <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+          <path d="M4.5 3.2 L4.5 19.6 L8.7 15.6 L11.3 21 L13.9 19.8 L11.4 14.4 L17.3 14.4 Z" fill="currentColor" stroke="currentColor" stroke-width="1" stroke-linejoin="round" />
+        </svg>
+      </button>
+      <button class="tool-btn" data-tool="rotate" title="Rotate Selection (T) — rotates the current selection with a numeric angle slider, instead of a drag handle">
         <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
           <path d="M5 12a7 7 0 1 1 2.3 5.2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
           <path d="M3.8 15.6 L7 19 L9.6 15.1 Z" fill="currentColor" />
         </svg>
       </button>
+      <button class="tool-btn" data-tool="scale" title="Resize Selection (J) — scales the current selection with a numeric Smooth%/Rigid-block slider, instead of a drag handle">
+        <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+          <rect x="3.5" y="10.5" width="7" height="7" rx="1" fill="none" stroke="currentColor" stroke-width="1.7" />
+          <rect x="8.5" y="5.5" width="12" height="12" rx="1" fill="none" stroke="currentColor" stroke-width="1.7" />
+        </svg>
+      </button>
+    </div>
+
+    <div class="toolbar-divider" aria-hidden="true"></div>
+
+    <div class="tool-group" role="group" aria-label="Advanced brushes">
       <button class="tool-btn" data-tool="vbrush" title="V Brush (V) — the powerhouse brush: average-based palette picking, extendable with a Perlin noise + math + color-clamp pipeline">
         <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
           <circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="1.6" />
@@ -119,6 +163,14 @@
           <circle cx="14" cy="9" r="1.5" fill="currentColor" />
           <circle cx="15.5" cy="14" r="1.5" fill="currentColor" />
           <circle cx="10" cy="15" r="1.5" fill="currentColor" />
+        </svg>
+      </button>
+      <button class="tool-btn" data-tool="stamp" title="Stamp Brush (P) — paint a small pattern you design once, tiled seamlessly across the canvas on a grid sized to the stamp itself">
+        <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+          <rect x="3.5" y="3.5" width="7" height="7" fill="none" stroke="currentColor" stroke-width="1.6" />
+          <rect x="13.5" y="3.5" width="7" height="7" fill="none" stroke="currentColor" stroke-width="1.6" />
+          <rect x="3.5" y="13.5" width="7" height="7" fill="none" stroke="currentColor" stroke-width="1.6" />
+          <rect x="13.5" y="13.5" width="7" height="7" fill="currentColor" />
         </svg>
       </button>
     </div>
@@ -164,14 +216,74 @@
       </div>
     </div>
 
-    <!-- Pixel Selection only: clipboard + copy/cut to a brand-new layer.
-         Ctrl+C/X/V do ordinary same-layer copy/cut/paste — see ui.js. -->
+    <!-- Smoothing Pencil only: which algorithm(s) run over the freehand
+         stroke (see js/lineSmoothing.js), and when they run. "Symmetric
+         Curves" mode's two sub-algorithms are independently toggleable
+         checkboxes rather than an either/or choice, per Roger's request —
+         see tools/smoothingPencilTool.js for what each setting does. Shares
+         the Pen Size control (#pen-size-options) with Pencil/Eraser/Mirror
+         Pen. An Arc Curve Correction (local curvature averaging) pass
+         always runs first, on every mode below — it has no toggle of its
+         own, per Roger's request to bake it into both Limit Doubling and
+         Symmetric Curves rather than gate it behind a switch. -->
+    <div class="tool-options" id="smoothing-options" hidden>
+      <label title="An Arc Curve Correction pass (local curvature averaging) always runs first, before whichever mode below is selected — it has no on/off switch of its own.">Algorithm</label>
+      <div class="segmented-group" role="group" aria-label="Smoothing algorithm">
+        <button type="button" class="segmented-btn" data-smoothing-mode="doubling" title="Removes the doubled 'elbow' pixel wherever a freehand diagonal changes direction, keeping it a clean 1px-wide staircase — the classic Aseprite 'pixel perfect' fix">Limit Doubling</button>
+        <button type="button" class="segmented-btn" data-smoothing-mode="symmetric" title="Evens out the curve's step pattern and/or mirrors its two halves, per the checkboxes below">Symmetric Curves</button>
+        <button type="button" class="segmented-btn active" data-smoothing-mode="both" title="Runs Limit Doubling and Symmetric Curves together">Both</button>
+      </div>
+      <div class="smoothing-symmetric-group" id="smoothing-symmetric-group">
+        <label class="shape-fill-label" for="smoothing-even-step">
+          <input type="checkbox" id="smoothing-even-step" checked />
+          Even Step Pattern
+        </label>
+        <label class="shape-fill-label" for="smoothing-mirror-halves">
+          <input type="checkbox" id="smoothing-mirror-halves" />
+          Mirror Halves
+        </label>
+      </div>
+      <label>Timing</label>
+      <div class="segmented-group" role="group" aria-label="Smoothing timing">
+        <button type="button" class="segmented-btn active" data-smoothing-timing="live" title="Corrects the line in real time as you draw">Live</button>
+        <button type="button" class="segmented-btn" data-smoothing-timing="finish" title="Draws the raw stroke first, then replaces it with the smoothed version once you release the mouse">Finishing Pass</button>
+      </div>
+      <div class="vbrush-preset-row">
+        <span class="vbrush-preset-label">Preset</span>
+        <select id="smoothing-preset-select" aria-label="Saved Smoothing Pencil preset">
+          <option value="">No saved presets</option>
+        </select>
+        <button type="button" class="btn" id="smoothing-preset-load-btn" title="Replace the current settings with the selected preset">Load</button>
+        <button type="button" class="btn danger" id="smoothing-preset-delete-btn" title="Delete the selected preset">Delete</button>
+        <button type="button" class="btn primary" id="smoothing-preset-save-btn" title="Save the current settings as a named preset">Save Preset&hellip;</button>
+      </div>
+    </div>
+
+    <!-- Pixel Selection: Rect/Layer/Object mode toggle, plus clipboard +
+         copy/cut to a brand-new layer. Ctrl+C/X/V do ordinary same-layer
+         copy/cut/paste — see ui.js. See tools/pixelSelectionTool.js for
+         what each mode actually selects. -->
     <div class="tool-options" id="select-options" hidden>
+      <label>Select</label>
+      <div class="segmented-group" role="group" aria-label="Selection mode">
+        <button type="button" class="segmented-btn active" data-select-mode="rect" title="Drag a rectangle marquee">Rect</button>
+        <button type="button" class="segmented-btn" data-select-mode="layer" title="Click anywhere to select this layer's whole painted area — its exact shape, not just a box around it">Layer</button>
+        <button type="button" class="segmented-btn" data-select-mode="object" title="Click a shape to select just its connected pixels — a simple magic wand">Object</button>
+      </div>
       <button type="button" class="btn" id="select-copy" title="Copy the selection (Ctrl+C)">Copy</button>
       <button type="button" class="btn" id="select-cut" title="Cut the selection (Ctrl+X)">Cut</button>
-      <button type="button" class="btn" id="select-paste" title="Paste back onto this layer, at its original spot (Ctrl+V)">Paste</button>
+      <button type="button" class="btn" id="select-paste" title="Paste (Ctrl+V) — always lands on a brand-new layer, flagged as an object, at its original spot — ready to move/rotate/resize with the Object tool">Paste</button>
       <button type="button" class="btn" id="select-copy-new-layer" title="Copy the selection into a brand-new layer, in place">Copy to New Layer</button>
       <button type="button" class="btn" id="select-cut-new-layer" title="Cut the selection into a brand-new layer, in place">Cut to New Layer</button>
+    </div>
+
+    <!-- Object tool only: no sliders at all — everything is dragged
+         directly on the canvas (see tools/objectTool.js / objectOverlay.js).
+         This strip is just a reminder of what to grab, for anyone who
+         hasn't spotted the handles yet. -->
+    <div class="tool-options" id="object-options" hidden>
+      <label>Object</label>
+      <span>Drag inside the box to move · a corner/edge handle to resize · the small circle above it to rotate.</span>
     </div>
 
     <!-- Rotate Selection only: arbitrary-angle slider (make a selection
@@ -179,7 +291,33 @@
     <div class="tool-options" id="rotate-options" hidden>
       <label for="rotate-angle">Angle</label>
       <input id="rotate-angle" type="range" min="-180" max="180" value="0" />
-      <span id="rotate-angle-value">0&deg;</span>
+      <span class="angle-input-group">
+        <input id="rotate-angle-value" type="number" min="-180" max="180" value="0" step="1" class="angle-number-input" title="Type an exact angle and press Enter to apply it" />
+        <span aria-hidden="true">&deg;</span>
+      </span>
+    </div>
+
+    <!-- Resize Selection only: Smooth (any %) vs. Rigid (exact NxN
+         pixel-block multiples, "1 pixel = 4", "1 pixel = 9", ...)
+         nearest-neighbor scaling of the current selection — make a
+         selection first with the Pixel Selection tool, then switch here.
+         See tools/resizeSelectionTool.js. -->
+    <div class="tool-options" id="scale-options" hidden>
+      <label>Mode</label>
+      <div class="segmented-group" role="group" aria-label="Resize mode">
+        <button type="button" class="segmented-btn active" data-scale-mode="smooth" title="Any percentage, nearest-neighbor sampled">Smooth</button>
+        <button type="button" class="segmented-btn" data-scale-mode="rigid" title="Locks to whole pixel-block multiples (1 pixel = 4, 1 pixel = 9, …) for a perfectly even enlargement">Rigid</button>
+      </div>
+      <span class="scale-slider-group" id="scale-smooth-group">
+        <label for="scale-percent">Scale</label>
+        <input id="scale-percent" type="range" min="25" max="400" value="100" />
+        <span id="scale-percent-value">100%</span>
+      </span>
+      <span class="scale-slider-group" id="scale-rigid-group" hidden>
+        <label for="scale-rigid-factor">Block</label>
+        <input id="scale-rigid-factor" type="range" min="1" max="8" value="1" />
+        <span id="scale-rigid-value">1 pixel = 1</span>
+      </span>
     </div>
 
     <!-- V Brush only: dab radius, and a hard cap on how many distinct
@@ -196,6 +334,28 @@
       <input id="vbrush-colors" type="range" min="2" max="15" value="8" />
       <span id="vbrush-colors-value">8</span>
       <button type="button" class="btn" id="vbrush-pipeline-open" title="Open the V Brush's node pipeline: Perlin noise, brick, wood grain, math, color ramp, palette pick, and color clamp nodes">Pipeline&hellip;</button>
+    </div>
+
+    <!-- Stamp Brush only: the stamp's own pixels are edited in a separate
+         Stamp Editor dialog (see stampBrush.js / #stamp-editor-dialog) —
+         this strip just has the two paint-time toggles (Anchor, Blend —
+         see tools/stampBrushTool.js for what each means), a live thumbnail
+         of the current stamp tiled 2×2 (so a seamless tile is obviously
+         seamless before you even paint with it), and the button that opens
+         that editor. -->
+    <div class="tool-options" id="stamp-options" hidden>
+      <label>Anchor</label>
+      <div class="segmented-group" role="group" aria-label="Stamp grid anchor">
+        <button type="button" class="segmented-btn active" data-stamp-anchor="origin" title="The repeating grid always starts at the canvas's own (0,0) corner — perfectly seamless everywhere, however or wherever you click">Origin</button>
+        <button type="button" class="segmented-btn" data-stamp-anchor="first-click" title="The repeating grid starts wherever you first click after picking up this tool, letting you shift the tile pattern's offset on purpose">First Click</button>
+      </div>
+      <label>Blend</label>
+      <div class="segmented-group" role="group" aria-label="Stamp blend mode">
+        <button type="button" class="segmented-btn active" data-stamp-blend="overwrite" title="Fully replaces each touched cell with the stamp's exact pixels, including its own transparency — a true rubber stamp">Overwrite</button>
+        <button type="button" class="segmented-btn" data-stamp-blend="blend" title="Only paints the stamp's own non-transparent pixels; leaves the rest of the cell's existing content alone, same as a normal brush stroke">Blend</button>
+      </div>
+      <canvas id="stamp-thumb-canvas" class="stamp-thumb" width="32" height="32" title="Current stamp, tiled 2×2"></canvas>
+      <button type="button" class="btn" id="stamp-edit-open" title="Open the Stamp Editor to design the pattern this brush paints">Edit Stamp&hellip;</button>
     </div>
 
     <div class="opacity-control">
@@ -351,7 +511,10 @@
       <div class="sidebar-section">
         <div class="sidebar-section-header">
           <h2>Layers</h2>
-          <button type="button" class="icon-btn" id="layer-add" title="Add a new blank layer above the active one" aria-label="Add layer">+</button>
+          <div class="layers-header-actions">
+            <button type="button" class="icon-btn" id="layer-array-add" title="Repeat the active layer into an array of copies (orbit + position increment)" aria-label="Layer array">⧉</button>
+            <button type="button" class="icon-btn" id="layer-add" title="Add a new blank layer above the active one" aria-label="Add layer">+</button>
+          </div>
         </div>
         <div id="layers-list" class="layers-list"></div>
       </div>
@@ -376,6 +539,7 @@
           <canvas id="canvas"></canvas>
           <canvas id="ref-canvas-next-overlay" class="ref-overlay-canvas" hidden></canvas>
           <canvas id="selection-overlay-canvas" class="ref-overlay-canvas" hidden></canvas>
+          <canvas id="object-overlay-canvas" class="ref-overlay-canvas" hidden></canvas>
         </div>
 
         <div class="ref-pane" id="ref-pane-next" hidden>
@@ -442,6 +606,114 @@
 </dialog>
 
 <!-- ========================================================================
+     Resize Canvas dialog — Project > Resize Canvas…. Grows or shrinks every
+     frame's every layer to a new fixed width/height, keeping existing
+     artwork anchored at whichever of the 9 anchor-grid positions is picked
+     (new space is added transparent; a side that shrinks is cropped away).
+     Unlike a brush stroke or a layer edit, this ISN'T undoable with Ctrl+Z —
+     a frame's undo history only ever snapshots its layer pixels/visibility,
+     never the frame's own width/height (same structural-change category as
+     File > New / Import Frames / Import Sprite Sheet, which also fully
+     replace the project without a history entry). See
+     App.promptResizeCanvas/resizeCanvas.
+     ======================================================================== -->
+<dialog id="resize-canvas-dialog">
+  <form id="resize-canvas-form">
+    <h2>Resize Canvas</h2>
+    <div class="field-row">
+      <div class="field">
+        <label for="resize-canvas-width">Width</label>
+        <input id="resize-canvas-width" type="number" min="1" max="512" value="32" required />
+      </div>
+      <div class="field">
+        <label for="resize-canvas-height">Height</label>
+        <input id="resize-canvas-height" type="number" min="1" max="512" value="32" required />
+      </div>
+    </div>
+    <div class="field">
+      <label>Anchor</label>
+      <div class="anchor-grid" id="resize-canvas-anchor" role="group" aria-label="Anchor position">
+        <button type="button" class="anchor-btn active" data-anchor="top-left" title="Top-left" aria-label="Top-left"></button>
+        <button type="button" class="anchor-btn" data-anchor="top-center" title="Top-center" aria-label="Top-center"></button>
+        <button type="button" class="anchor-btn" data-anchor="top-right" title="Top-right" aria-label="Top-right"></button>
+        <button type="button" class="anchor-btn" data-anchor="middle-left" title="Middle-left" aria-label="Middle-left"></button>
+        <button type="button" class="anchor-btn" data-anchor="center" title="Center" aria-label="Center"></button>
+        <button type="button" class="anchor-btn" data-anchor="middle-right" title="Middle-right" aria-label="Middle-right"></button>
+        <button type="button" class="anchor-btn" data-anchor="bottom-left" title="Bottom-left" aria-label="Bottom-left"></button>
+        <button type="button" class="anchor-btn" data-anchor="bottom-center" title="Bottom-center" aria-label="Bottom-center"></button>
+        <button type="button" class="anchor-btn" data-anchor="bottom-right" title="Bottom-right" aria-label="Bottom-right"></button>
+      </div>
+    </div>
+    <p class="resize-canvas-hint" id="resize-canvas-hint">Existing artwork keeps its position relative to the anchor; new space is added transparent, and shrinking a side crops it away. Applies to every frame and every layer. Not undoable with Ctrl+Z.</p>
+    <div class="dialog-actions">
+      <button type="button" class="btn" id="resize-canvas-cancel">Cancel</button>
+      <button type="submit" class="btn primary">Resize</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- ========================================================================
+     Layer Array dialog — Layers panel header's "Array…" (⧉) button. Repeats
+     the ACTIVE layer's content into a chain of copies: Distance + Rotation
+     combine into an "orbit" (each successive copy pushed further out along
+     its own accumulated rotation angle), and Position Increment X/Y is a
+     separate straight-line nudge added on top, per copy. The preview canvas
+     redraws live as any field changes (App.renderLayerArrayPreview);
+     "Create" BAKES the result into real, individually-editable layers
+     (App.confirmLayerArray) rather than a live/reapplyable modifier — same
+     convention as "Copy to New Layer". One history entry covers the whole
+     array, so Ctrl+Z undoes it in one step.
+     ======================================================================== -->
+<dialog id="layer-array-dialog">
+  <form id="layer-array-form">
+    <h2>Layer Array</h2>
+    <div class="import-sheet-preview-wrap">
+      <canvas id="layer-array-preview-canvas"></canvas>
+    </div>
+    <div class="field">
+      <label for="layer-array-count">Count</label>
+      <div class="slider-row">
+        <input id="layer-array-count" type="range" min="1" max="24" value="4" />
+        <span id="layer-array-count-value">4</span>
+      </div>
+    </div>
+    <div class="field">
+      <label for="layer-array-distance">Distance per copy</label>
+      <div class="slider-row">
+        <input id="layer-array-distance" type="range" min="0" max="128" value="0" />
+        <span id="layer-array-distance-value">0px</span>
+      </div>
+    </div>
+    <div class="field">
+      <label for="layer-array-rotation">Rotation per copy</label>
+      <div class="slider-row">
+        <input id="layer-array-rotation" type="range" min="-180" max="180" value="0" />
+        <span id="layer-array-rotation-value">0&deg;</span>
+      </div>
+    </div>
+    <div class="field">
+      <label for="layer-array-pos-x">Position increment X</label>
+      <div class="slider-row">
+        <input id="layer-array-pos-x" type="range" min="-128" max="128" value="0" />
+        <span id="layer-array-pos-x-value">0px</span>
+      </div>
+    </div>
+    <div class="field">
+      <label for="layer-array-pos-y">Position increment Y</label>
+      <div class="slider-row">
+        <input id="layer-array-pos-y" type="range" min="-128" max="128" value="0" />
+        <span id="layer-array-pos-y-value">0px</span>
+      </div>
+    </div>
+    <p class="layer-array-hint">Distance + Rotation orbit each copy outward around this layer's own center; Position Increment nudges every copy in a straight line on top of that. "Create" bakes real, separately-editable layers above this one.</p>
+    <div class="dialog-actions">
+      <button type="button" class="btn" id="layer-array-cancel">Cancel</button>
+      <button type="submit" class="btn primary">Create</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- ========================================================================
      Import Sprite Sheet dialog — slices one already-loaded image (staged in
      App._pendingSpriteSheet by loadSpriteSheetFile) into a grid of equally
      sized frames. The preview canvas + red grid lines + "N × M = frames"
@@ -483,6 +755,13 @@
      hosted as a Claude Artifact) or a plain browser download (which uses
      the browser's own configured downloads folder/prompt). See
      App.promptExport/confirmExport and FileIO.exportImage.
+
+     A third format, "Frames (ZIP)", only appears when the project has more
+     than one frame — see App.promptExport, which toggles `hidden` on
+     #export-format-frameszip. Picking it "breaks apart" the sprite sheet:
+     every frame is saved as its own numbered PNG, all bundled into one
+     .zip (App.confirmExportFramesZip / FileIO.exportFramesAsZip), rather
+     than the sheet as one combined image.
      ======================================================================== -->
 <dialog id="export-dialog">
   <form id="export-form">
@@ -496,6 +775,7 @@
       <div class="segmented-group" role="group" aria-label="Export format">
         <button type="button" class="segmented-btn active" data-export-format="png">PNG</button>
         <button type="button" class="segmented-btn" data-export-format="jpg">JPG</button>
+        <button type="button" class="segmented-btn" data-export-format="frames-zip" id="export-format-frameszip" hidden>Frames (ZIP)</button>
       </div>
     </div>
     <p class="export-hint" id="export-hint"></p>
@@ -549,6 +829,57 @@
     <button type="button" class="btn" id="hs-cancel">Cancel</button>
     <button type="button" class="btn primary" id="hs-apply">Apply</button>
   </div>
+</dialog>
+
+<!-- ========================================================================
+     Stamp Editor dialog — Stamp Brush's "Edit Stamp…" button. A small,
+     independently zoomed, fully interactive pixel grid (NOT the main
+     canvas) you paint on to design the pattern the Stamp Brush tool then
+     repeats across the canvas. Width/Height resize the grid, keeping
+     existing pixels anchored top-left; Paint/Erase pick what clicking a
+     cell does; the preset row saves/loads named stamps, same pattern as
+     the V Brush pipeline's own presets below. See stampBrush.js's
+     initStampEditorPanel for all the DOM wiring (the grid itself is drawn
+     and hit-tested entirely in JS, since it's variable-sized).
+     ======================================================================== -->
+<dialog id="stamp-editor-dialog">
+  <form id="stamp-editor-form">
+    <h2>Stamp Editor</h2>
+    <div class="field-row">
+      <div class="field">
+        <label for="stamp-editor-width">Width</label>
+        <input id="stamp-editor-width" type="number" min="1" max="32" value="4" required />
+      </div>
+      <div class="field">
+        <label for="stamp-editor-height">Height</label>
+        <input id="stamp-editor-height" type="number" min="1" max="32" value="4" required />
+      </div>
+    </div>
+    <div class="stamp-edit-toolbar">
+      <div class="segmented-group" role="group" aria-label="Paint or erase">
+        <button type="button" class="segmented-btn active" data-stamp-edit-mode="paint" title="Paint cells with your current color">Paint</button>
+        <button type="button" class="segmented-btn" data-stamp-edit-mode="erase" title="Erase cells back to transparent">Erase</button>
+      </div>
+      <button type="button" class="btn" id="stamp-editor-clear">Clear</button>
+    </div>
+    <div class="stamp-editor-canvas-wrap">
+      <canvas id="stamp-editor-canvas"></canvas>
+    </div>
+    <p class="stamp-editor-hint">Click or drag cells to paint them. This stamp repeats edge-to-edge across the canvas, so anything reaching the border tiles directly into its neighbor — that's what makes seamless planks/tiles work.</p>
+    <div class="vbrush-preset-row">
+      <span class="vbrush-preset-label">Preset</span>
+      <select id="stamp-preset-select" aria-label="Saved stamp preset">
+        <option value="">No saved presets</option>
+      </select>
+      <button type="button" class="btn" id="stamp-preset-load-btn" title="Replace the stamp you're editing with the selected preset">Load</button>
+      <button type="button" class="btn danger" id="stamp-preset-delete-btn" title="Delete the selected preset">Delete</button>
+      <button type="button" class="btn primary" id="stamp-preset-save-btn" title="Save the current stamp as a named preset">Save Preset&hellip;</button>
+    </div>
+    <div class="dialog-actions">
+      <button type="button" class="btn" id="stamp-editor-cancel">Cancel</button>
+      <button type="submit" class="btn primary">Save Stamp</button>
+    </div>
+  </form>
 </dialog>
 
 <!-- ========================================================================
@@ -619,6 +950,8 @@
 <script src="js/selection.js"></script>
 <script src="js/filters.js"></script>
 <script src="js/vbrushPipeline.js"></script>
+<script src="js/stampBrush.js"></script>
+<script src="js/lineSmoothing.js"></script>
 <script src="js/tools/tool.js"></script>
 <script src="js/tools/pencilTool.js"></script>
 <script src="js/tools/fillTool.js"></script>
@@ -628,12 +961,17 @@
 <script src="js/tools/blenderTool.js"></script>
 <script src="js/tools/eraserTool.js"></script>
 <script src="js/tools/mirrorPenTool.js"></script>
+<script src="js/tools/smoothingPencilTool.js"></script>
 <script src="js/tools/pixelSelectionTool.js"></script>
+<script src="js/tools/objectTool.js"></script>
 <script src="js/tools/rotateSelectionTool.js"></script>
+<script src="js/tools/resizeSelectionTool.js"></script>
 <script src="js/tools/vBrushTool.js"></script>
+<script src="js/tools/stampBrushTool.js"></script>
 <script src="js/toolManager.js"></script>
 <script src="js/canvasView.js"></script>
 <script src="js/referenceView.js"></script>
+<script src="js/zipWriter.js"></script>
 <script src="js/fileIO.js"></script>
 <script src="js/menu.js"></script>
 <script src="js/ui.js"></script>
@@ -641,4 +979,5 @@
 <script src="js/filmstrip.js"></script>
 <script src="js/layersPanel.js"></script>
 <script src="js/selectionOverlay.js"></script>
+<script src="js/objectOverlay.js"></script>
 <script src="js/app.js"></script>

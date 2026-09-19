@@ -25,8 +25,14 @@ function initSelectionOverlay(app) {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
     const sel = app.selection.get();
-    canvas.hidden = !sel;
-    if (!sel) return;
+    // A freshly-pasted "object" layer (see App.pasteSelection) is selected
+    // internally so the Object tool can grab it immediately, but flags
+    // itself `hideMarquee` so the old dashed marquee doesn't also show up
+    // and look "stuck" — the Object tool's own overlay (objectOverlay.js)
+    // draws its handles independently of this file.
+    const showMarquee = !!sel && !sel.hideMarquee;
+    canvas.hidden = !showMarquee;
+    if (!showMarquee) return;
 
     const rectX = sel.x * zoom + 0.5;
     const rectY = sel.y * zoom + 0.5;
@@ -34,6 +40,23 @@ function initSelectionOverlay(app) {
     const rectH = Math.max(1, sel.h * zoom - 1);
 
     ctx.save();
+
+    // A "Layer"/"Object" mode selection (see pixelSelectionTool.js) carries
+    // an exact-shape mask, not just a bounding box — highlight precisely
+    // those pixels too, underneath the marching ants, so it's obvious an
+    // L-shaped sprite's selection doesn't also cover its empty corner even
+    // though the dashed rectangle below still traces its full bounding box.
+    if (sel.mask) {
+      ctx.fillStyle = 'rgba(74, 163, 255, 0.35)';
+      for (let ry = 0; ry < sel.h; ry++) {
+        for (let rx = 0; rx < sel.w; rx++) {
+          if (sel.mask[ry * sel.w + rx]) {
+            ctx.fillRect((sel.x + rx) * zoom, (sel.y + ry) * zoom, zoom, zoom);
+          }
+        }
+      }
+    }
+
     ctx.lineWidth = 1;
     ctx.setLineDash([4, 4]);
     ctx.strokeStyle = '#ffffff';

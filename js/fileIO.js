@@ -63,7 +63,8 @@ const FileIO = {
   },
 
   /**
-   * Exports the buffer and hands it to the viewer to save.
+   * Hands a Blob to the viewer to save under `fullName`, shared by both
+   * `exportImage` and `exportFramesAsZip` below.
    *
    * This app can run three ways, tried in order of how much control they
    * give the person over WHERE the file lands, not just its name:
@@ -82,30 +83,12 @@ const FileIO = {
    *      which still uses the chosen filename but lands wherever that
    *      browser's own downloads setting/prompt puts it.
    *
-   * @param {PAE.PixelBuffer} buffer
-   * @param {'png'|'jpg'} format
-   * @param {string} filename  without extension
+   * @param {Blob} blob
+   * @param {string} fullName  WITH extension (unlike the public methods below, which take a bare filename)
+   * @param {{description: string, mime: string, ext: string}} [pickerType]  only used to label/filter the native Save dialog; omit for a generic file
    * @returns {Promise<{status: string}>}
    */
-  async exportImage(buffer, format, filename = 'pixel-art') {
-    const canvas = document.createElement('canvas');
-    canvas.width = buffer.width;
-    canvas.height = buffer.height;
-    const ctx = canvas.getContext('2d');
-
-    if (format === 'jpg') {
-      // JPG has no alpha channel — composite over white first so transparent
-      // areas export as white instead of undefined/black.
-      ctx.fillStyle = '#ffffff';
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-    }
-    ctx.putImageData(buffer.toImageData(), 0, 0);
-
-    const mime = format === 'jpg' ? 'image/jpeg' : 'image/png';
-    const ext = format === 'jpg' ? 'jpg' : 'png';
-    const blob = await new Promise((resolve) => canvas.toBlob(resolve, mime, 0.92));
-    const fullName = `${filename}.${ext}`;
-
+  async _saveBlob(blob, fullName, pickerType) {
     // Path 1: the File System Access API — the only one of the three that
     // can actually ask the person WHERE to save, via the browser/OS's own
     // native picker. Feature-detected, so it's simply skipped (falling
@@ -114,10 +97,11 @@ const FileIO = {
     // by permissions policy even if `window.showSaveFilePicker` exists.
     if (typeof window.showSaveFilePicker === 'function') {
       try {
-        const handle = await window.showSaveFilePicker({
-          suggestedName: fullName,
-          types: [{ description: format === 'jpg' ? 'JPEG image' : 'PNG image', accept: { [mime]: [`.${ext}`] } }],
-        });
+        const opts = { suggestedName: fullName };
+        if (pickerType) {
+          opts.types = [{ description: pickerType.description, accept: { [pickerType.mime]: [`.${pickerType.ext}`] } }];
+        }
+        const handle = await window.showSaveFilePicker(opts);
         const writable = await handle.createWritable();
         await writable.write(blob);
         await writable.close();
@@ -127,7 +111,7 @@ const FileIO = {
         // that and stop, rather than surprising them with a second,
         // silent download via one of the fallback paths below.
         if (err && err.name === 'AbortError') {
-          const declined = new Error('Export cancelled.');
+          const declined = new Error('Save cancelled.');
           declined.code = 'declined';
           throw declined;
         }
@@ -161,6 +145,66 @@ const FileIO = {
     a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
     return { status: 'saved' };
+  },
+
+  /**
+   * Exports one buffer as a PNG or JPG — see `_saveBlob` above for how/where
+   * it actually lands.
+   * @param {PAE.PixelBuffer} buffer
+   * @param {'png'|'jpg'} format
+   * @param {string} filename  without extension
+   * @returns {Promise<{status: string}>}
+   */
+  async exportImage(buffer, format, filename = 'pixel-art') {
+    const canvas = document.createElement('canvas');
+    canvas.width = buffer.width;
+    canvas.height = buffer.height;
+    const ctx = canvas.getContext('2d');
+
+    if (format === 'jpg') {
+      // JPG has no alpha channel — composite over white first so transparent
+      // areas export as white instead of undefined/black.
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+    }
+    ctx.putImageData(buffer.toImageData(), 0, 0);
+
+    const mime = format === 'jpg' ? 'image/jpeg' : 'image/png';
+    const ext = format === 'jpg' ? 'jpg' : 'png';
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, mime, 0.92));
+    return FileIO._saveBlob(blob, `${filename}.${ext}`, {
+      description: format === 'jpg' ? 'JPEG image' : 'PNG image',
+      mime,
+      ext,
+    });
+  },
+
+  /**
+   * "Break apart" a multi-frame project: renders every frame to its own PNG
+   * and bundles all of them into one .zip (via ZipWriter — see that file's
+   * header for why this app hand-rolls its own zip writer instead of
+   * pulling in a library). One zip, one save/download, rather than N
+   * separate native-picker prompts or N simultaneous anchor-click downloads
+   * (which browsers throttle/block past a handful anyway).
+   * @param {Array<PAE.PixelBuffer>} buffers  one per frame, already flattened/composited
+   * @param {string} baseName  without extension — also the prefix for each PNG inside the zip
+   * @returns {Promise<{status: string}>}
+   */
+  async exportFramesAsZip(buffers, baseName = 'frame') {
+    const pad = Math.max(2, String(buffers.length).length);
+    const files = [];
+    for (let i = 0; i < buffers.length; i++) {
+      const canvas = document.createElement('canvas');
+      canvas.width = buffers[i].width;
+      canvas.height = buffers[i].height;
+      canvas.getContext('2d').putImageData(buffers[i].toImageData(), 0, 0);
+      const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
+      const arrayBuffer = await blob.arrayBuffer();
+      const num = String(i + 1).padStart(pad, '0');
+      files.push({ name: `${baseName}_${num}.png`, data: new Uint8Array(arrayBuffer) });
+    }
+    const zipBlob = window.PAE.ZipWriter.build(files);
+    return FileIO._saveBlob(zipBlob, `${baseName}.zip`, { description: 'ZIP archive', mime: 'application/zip', ext: 'zip' });
   },
 };
 

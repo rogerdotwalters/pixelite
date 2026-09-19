@@ -39,10 +39,32 @@
       this.vbrushRadius = 4; // V Brush: circular radius in pixels
       this.vbrushColorLimit = 8; // V Brush: hard cap on distinct colors it'll use per dab
       this.vbrushPipeline = { nodes: [] }; // V Brush: ordered node list (Perlin noise/math/palette-pick/color-clamp) — see vbrushPipeline.js. Empty = the brush's original, simpler behavior.
+      // Stamp Brush: the current stamp pattern (painted in its own mini
+      // editor — see stampBrush.js's Stamp Editor dialog), plus the two
+      // toggles for how it's painted onto the canvas (see
+      // tools/stampBrushTool.js for what each actually does). Starts blank
+      // — a 4x4 fully transparent buffer — so a fresh session's Stamp
+      // Brush tool simply does nothing until something's painted into it.
+      this.stamp = { width: 4, height: 4, buffer: window.PAE.PixelBuffer.createBlank(4, 4) };
+      this.stampAnchorMode = 'origin'; // 'origin' | 'first-click'
+      this.stampBlendMode = 'overwrite'; // 'overwrite' | 'blend'
+      // Smoothing Pencil: which algorithm(s) run over a freehand stroke
+      // before it's committed — see js/lineSmoothing.js for what each one
+      // actually does, tools/smoothingPencilTool.js for how/when they run.
+      this.smoothingMode = 'both'; // 'doubling' | 'symmetric' | 'both'
+      this.smoothingEvenStep = true; // Symmetric Curves' "Even Step Pattern" checkbox
+      this.smoothingMirrorHalves = false; // Symmetric Curves' "Mirror Halves" checkbox
+      this.smoothingTiming = 'live'; // 'live' | 'finish'
       this.selection = new window.PAE.Selection(); // Pixel Selection tool's current rectangle, or null
       this.clipboard = null; // { x, y, buffer } from the last Copy/Cut — see copySelection()
       this._filterSnapshot = null; // pre-filter buffer, while a filter dialog is open — see openBrightnessContrastDialog()
       this._changeListeners = [];
+      // Fired by toolCtx.requestRender() (below), in addition to the main
+      // canvas repaint, so a tool's own on-canvas overlay can redraw in
+      // lockstep with every mousemove-driven recompute — currently just
+      // the Object tool's drag handles (objectOverlay.js), but generic so
+      // any future tool with a live canvas overlay can hook in the same way.
+      this._overlayRenderers = [];
 
       const canvasEl = document.getElementById('canvas');
       const viewportEl = document.getElementById('canvas-viewport');
@@ -90,12 +112,47 @@
         getMirrorAxis: () => this.mirrorAxis,
         getSelection: () => this.selection.get(),
         setSelection: (rect) => this.selection.set(rect),
+        // See toolManager.js's SELECTION_PRESERVING_TOOL_IDS: fired
+        // automatically on switching to any tool that isn't one of the
+        // selection-driven ones, so a selection never lingers once you've
+        // moved on to a drawing tool. Also wired to the Escape key (ui.js).
+        clearSelection: () => this.selection.clear(),
+        // Object tool only (tools/objectTool.js): "click directly on a
+        // painted pixel to grab it" — no separate select-first trip
+        // through the Pixel Selection tool or the Layers panel. See
+        // App.pickObjectAt for exactly which layer wins.
+        pickObjectAt: (x, y) => this.pickObjectAt(x, y),
         getMixColors: () => this.colorMixer.getGrid().flat().map(window.PAE.PaletteManager.hexToRgb),
         getVBrushRadius: () => this.vbrushRadius,
         getVBrushColorLimit: () => this.vbrushColorLimit,
         getVBrushPipeline: () => this.vbrushPipeline,
+        getStamp: () => this.stamp,
+        getStampAnchorMode: () => this.stampAnchorMode,
+        getStampBlendMode: () => this.stampBlendMode,
+        getSmoothingMode: () => this.smoothingMode,
+        getSmoothingEvenStep: () => this.smoothingEvenStep,
+        getSmoothingMirrorHalves: () => this.smoothingMirrorHalves,
+        getSmoothingTiming: () => this.smoothingTiming,
+        // Object tool only (tools/objectTool.js): precise on-canvas handle
+        // hit-testing needs the CURRENT zoom (to convert a fixed number of
+        // screen pixels' tolerance into image-pixel units) and fractional,
+        // un-floored mouse coordinates (an ordinary tool only ever needs
+        // "which whole pixel," but a handle a fraction of a pixel wide at
+        // low zoom needs sub-pixel precision to hit reliably).
+        getZoom: () => this.canvasView.zoom,
+        eventToFractionalPixel: (evt) => this.canvasView.eventToFractionalPixel(evt),
+        // Rotate Selection / Object tool only: the active Layer OBJECT
+        // itself (not just its buffer), so a rotate gesture can read/write
+        // its persistent `rotationOrigin` — see Layer.resolveRotationBase/
+        // storeRotationBase in layer.js for why a rotate needs more than
+        // just the pixel buffer to avoid compounding data loss across
+        // separate rotate gestures.
+        getActiveLayer: () => this.project.currentFrame.activeLayer,
         pickColor: (hex) => this.setBaseColor(hex),
-        requestRender: () => this.canvasView.render(),
+        requestRender: () => {
+          this.canvasView.render();
+          this._overlayRenderers.forEach((fn) => fn());
+        },
       };
 
       // ---- Register built-in tools --------------------------------------
@@ -110,8 +167,12 @@
       this.toolManager.register(new window.PAE.EraserTool());
       this.toolManager.register(new window.PAE.MirrorPenTool());
       this.toolManager.register(new window.PAE.PixelSelectionTool());
+      this.toolManager.register(new window.PAE.ObjectTool());
       this.toolManager.register(new window.PAE.RotateSelectionTool());
+      this.toolManager.register(new window.PAE.ResizeSelectionTool());
       this.toolManager.register(new window.PAE.VBrushTool());
+      this.toolManager.register(new window.PAE.StampBrushTool());
+      this.toolManager.register(new window.PAE.SmoothingPencilTool());
 
       this._wireCanvasEvents(canvasEl);
       this.canvasView.render();
@@ -138,6 +199,11 @@
 
     notifyChange() {
       this._changeListeners.forEach((fn) => fn(this));
+    }
+
+    /** Registers a callback fired every time toolCtx.requestRender() runs — see the constructor's `_overlayRenderers` comment. */
+    onOverlayRender(fn) {
+      this._overlayRenderers.push(fn);
     }
 
     // ---- current color / color mixer --------------------------------------
@@ -225,17 +291,97 @@
       this.notifyChange();
     }
 
-    /** Which layer tools paint on next — doesn't touch the picture, so no history entry. */
+    /**
+     * Which layer tools paint on next — doesn't touch the picture, so no
+     * history entry. If the layer being made active has `actAsObject` set
+     * (see the Layers panel's ◆ icon / layer.js), it also auto-selects that
+     * layer's whole painted footprint — the same thing Pixel Selection's
+     * "Layer" mode would select — so it behaves like clicking a single
+     * object, whether you got here via the ◆ icon (toggleActsAsObject) or
+     * just an ordinary click on the row.
+     */
     setActiveLayer(index) {
       this.project.currentFrame.setActiveLayerIndex(index);
+      const layer = this.project.currentFrame.activeLayer;
+      if (layer && layer.actAsObject) this.selectActiveLayerAsObject();
       this.notifyChange();
+    }
+
+    /**
+     * Flips a layer's "acts as object" flag (the Layers panel's ◆ icon).
+     * Also makes that layer the active one either way — turning the flag ON
+     * is meant to be a single click that both marks AND selects the layer
+     * as an object (see setActiveLayer above for the actual auto-select).
+     */
+    toggleActsAsObject(index) {
+      const layer = this.project.currentFrame.layers[index];
+      if (!layer) return;
+      layer.actAsObject = !layer.actAsObject;
+      this.setActiveLayer(index);
+    }
+
+    /**
+     * Selects the ACTIVE layer's whole painted footprint — exactly what
+     * Pixel Selection's "Layer" mode would select — used automatically by
+     * setActiveLayer above whenever an "acts as object" layer becomes
+     * active, and by promptLayerArray below to grab the content + pivot
+     * for the Layer Array tool. Silently clears the selection if the layer
+     * is empty rather than alerting (this can fire just from switching
+     * layers, so it shouldn't interrupt with a dialog the way manually
+     * choosing Pixel Selection's "Layer" mode does).
+     */
+    selectActiveLayerAsObject() {
+      const buf = this.buffer;
+      const region = window.PAE.PixelBuffer.boundingBoxOfContent(buf);
+      if (!region) {
+        this.selection.clear();
+        return;
+      }
+      const mask = window.PAE.PixelBuffer.alphaMask(buf, region);
+      this.selection.set({ x: region.x, y: region.y, w: region.w, h: region.h, mask });
+    }
+
+    /**
+     * Object tool's "click directly on the canvas to grab an object"
+     * (tools/objectTool.js's onMouseDown, called whenever the click didn't
+     * land on the CURRENT selection's body/handles) — Roger: "I want to be
+     * able to click on the canvas to select object in my layer as well to
+     * drag." Checks the ACTIVE layer's own pixel at (x, y) first — "my
+     * layer", regardless of whether it's flagged "Acts as Object" — then
+     * falls back to every OTHER layer that IS flagged that way, topmost
+     * first (matching what you'd expect to grab by looking at the
+     * picture). Whichever layer matches becomes the active one (the exact
+     * same auto-select-its-footprint behavior as clicking its Layers panel
+     * row — see setActiveLayer/selectActiveLayerAsObject above) and its
+     * freshly selected footprint is returned so the Object tool can start
+     * dragging it in the same mousedown, no separate select-first step.
+     * Returns null if (x, y) isn't a painted pixel on any eligible layer.
+     */
+    pickObjectAt(x, y) {
+      const frame = this.project.currentFrame;
+      const activeLayer = frame.activeLayer;
+      if (activeLayer && activeLayer.buffer.inBounds(x, y) && activeLayer.buffer.getPixel(x, y)[3] > 0) {
+        this.selectActiveLayerAsObject();
+        return this.selection.get();
+      }
+      for (let i = frame.layers.length - 1; i >= 0; i--) {
+        if (i === frame.activeLayerIndex) continue;
+        const layer = frame.layers[i];
+        if (!layer.actAsObject) continue;
+        const p = layer.buffer.inBounds(x, y) ? layer.buffer.getPixel(x, y) : null;
+        if (p && p[3] > 0) {
+          this.setActiveLayer(i);
+          return this.selection.get();
+        }
+      }
+      return null;
     }
 
     // ---- pixel selection: clipboard + copy/cut to a new layer -------------
     // See selection.js for why a selection itself isn't part of undo
     // history — only the actual pixel/layer mutations below are.
 
-    /** Snapshots the selected pixels into `this.clipboard`, remembering their original position so Paste can put them back exactly where they were by default. */
+    /** Snapshots the selected pixels into `this.clipboard`, remembering their original position so Paste can put them back exactly where they were by default. A "Layer"/"Object" mode selection's `.mask` (see selection.js) is respected: pixels outside the exact shape are left transparent in the snippet rather than copied. */
     copySelection() {
       const sel = this.selection.get();
       if (!sel) return;
@@ -243,13 +389,14 @@
       const snippet = new window.PAE.PixelBuffer(sel.w, sel.h);
       for (let y = 0; y < sel.h; y++) {
         for (let x = 0; x < sel.w; x++) {
+          if (sel.mask && !sel.mask[y * sel.w + x]) continue;
           snippet.setPixel(x, y, source.getPixel(sel.x + x, sel.y + y) || [0, 0, 0, 0]);
         }
       }
       this.clipboard = { x: sel.x, y: sel.y, buffer: snippet };
     }
 
-    /** Copy, then clear the selected pixels from the active layer — an ordinary same-layer cut. */
+    /** Copy, then clear the selected pixels from the active layer — an ordinary same-layer cut. Also mask-aware (see copySelection above): only pixels within the exact selected shape are cleared. */
     cutSelection() {
       const sel = this.selection.get();
       if (!sel) return;
@@ -257,25 +404,56 @@
       this.history.commit();
       const buf = this.buffer;
       for (let y = 0; y < sel.h; y++) {
-        for (let x = 0; x < sel.w; x++) buf.setPixel(sel.x + x, sel.y + y, [0, 0, 0, 0]);
+        for (let x = 0; x < sel.w; x++) {
+          if (sel.mask && !sel.mask[y * sel.w + x]) continue;
+          buf.setPixel(sel.x + x, sel.y + y, [0, 0, 0, 0]);
+        }
       }
       this.canvasView.render();
       this.notifyChange();
     }
 
-    /** Blends the clipboard back onto the ACTIVE layer at its original position — an ordinary same-layer paste (use "Copy/Cut to New Layer" below for a real new layer instead). */
+    /**
+     * Paste (Ctrl+V) — as of this round, ALWAYS lands on a brand-new layer
+     * above the active one, flagged "Acts as Object" (same flag as the
+     * Layers panel's ◆ icon), containing just the pasted pixels at their
+     * original copied position (so nothing visually shifts). Per Roger's
+     * request ("convert object I cut and paste... into objects that can
+     * be rotated"), this makes every paste immediately grabbable by the
+     * new Object tool (tools/objectTool.js) — or by Rotate/Resize
+     * Selection, since "acts as object" auto-selects the exact pasted
+     * footprint the moment this new layer becomes active (see
+     * setActiveLayer/selectActiveLayerAsObject) — instead of blending
+     * anonymously into whatever layer happened to be active, the old
+     * behavior. One history.commit() covers the whole paste, same as
+     * "Copy/Cut to New Layer" below.
+     *
+     * Roger's follow-up ask: paste should "auto clear the selection box"
+     * so it doesn't look stuck on screen — but the Object tool still needs
+     * a real selection to show its handles / be grabbable at all. Both are
+     * true at once by keeping the selection SET internally but flagging it
+     * `hideMarquee` (see selection.js), which selectionOverlay.js checks to
+     * skip drawing the old dashed-marquee rectangle for it — the Object
+     * tool's own overlay (objectOverlay.js) is unaffected and still shows
+     * up the instant you switch to it or click the pasted object.
+     */
     pasteSelection() {
       if (!this.clipboard) return;
       this.history.commit();
       const { x, y, buffer } = this.clipboard;
-      const target = this.buffer;
+      const frame = this.project.currentFrame;
+      const snippet = window.PAE.PixelBuffer.createBlank(frame.width, frame.height);
       for (let dy = 0; dy < buffer.height; dy++) {
         for (let dx = 0; dx < buffer.width; dx++) {
           const p = buffer.getPixel(dx, dy);
-          if (p[3] > 0) target.blendPixel(x + dx, y + dy, [p[0], p[1], p[2]], p[3] / 255);
+          if (p[3] > 0) snippet.setPixel(x + dx, y + dy, p);
         }
       }
-      this.selection.set({ x, y, w: buffer.width, h: buffer.height });
+      frame.insertLayerAbove('Pasted Object', snippet);
+      frame.activeLayer.actAsObject = true;
+      this.selectActiveLayerAsObject();
+      const sel = this.selection.get();
+      if (sel) this.selection.set({ ...sel, hideMarquee: true });
       this.canvasView.render();
       this.notifyChange();
     }
@@ -288,6 +466,9 @@
      * clears those pixels from the layer they came from. One history.commit()
      * covers both the source-clear and the new layer, since a frame's undo
      * snapshot already captures its whole layer stack (see spriteProject.js).
+     * Also mask-aware, same as copySelection/cutSelection above: a "Layer"/
+     * "Object" mode selection only moves its exact shape, not its whole
+     * bounding box.
      */
     copySelectionToNewLayer({ cut = false } = {}) {
       const sel = this.selection.get();
@@ -298,6 +479,7 @@
       const snippet = window.PAE.PixelBuffer.createBlank(frame.width, frame.height);
       for (let y = 0; y < sel.h; y++) {
         for (let x = 0; x < sel.w; x++) {
+          if (sel.mask && !sel.mask[y * sel.w + x]) continue;
           const p = buf.getPixel(sel.x + x, sel.y + y);
           if (p && p[3] > 0) snippet.setPixel(sel.x + x, sel.y + y, p);
         }
@@ -305,10 +487,164 @@
       this.history.commit();
       if (cut) {
         for (let y = 0; y < sel.h; y++) {
-          for (let x = 0; x < sel.w; x++) sourceLayer.buffer.setPixel(sel.x + x, sel.y + y, [0, 0, 0, 0]);
+          for (let x = 0; x < sel.w; x++) {
+            if (sel.mask && !sel.mask[y * sel.w + x]) continue;
+            sourceLayer.buffer.setPixel(sel.x + x, sel.y + y, [0, 0, 0, 0]);
+          }
         }
       }
       frame.insertLayerAbove(`${cut ? 'Cut' : 'Copy'} of ${sourceLayer.name}`, snippet);
+      this.canvasView.render();
+      this.notifyChange();
+    }
+
+    // ---- Layers panel: "Layer Array" ---------------------------------------
+    // Repeats the ACTIVE layer's content into a chain of copies, each one
+    // orbiting further out from the last: Distance + Rotation combine into
+    // an "orbit" (each successive copy is pushed outward by Distance along
+    // its OWN accumulated rotation angle, sweeping around in an arc/spiral),
+    // while Position Increment X/Y is a separate straight-line nudge added
+    // on top of that, per copy. For copy i (1-indexed; i=0 is the untouched
+    // original, never touched by this feature):
+    //   angle_i  = rotation * i
+    //   radius_i = distance * i
+    //   dx_i = round(radius_i * cos(angle_i) + posX * i)
+    //   dy_i = round(radius_i * sin(angle_i) + posY * i)
+    // and copy i is the source content rotated by angle_i around its own
+    // bounding-box center (never persisted on Layer — always re-derived
+    // fresh from PixelBuffer.boundingBoxOfContent) and translated by
+    // (dx_i, dy_i). "Create" BAKES this into `count - 1` brand-new real
+    // Layer objects stacked above the source (same "bake, don't modify"
+    // convention as Copy/Cut to New Layer above) — fully editable
+    // afterward, not a live/reapplyable modifier.
+
+    /**
+     * Opens the Layer Array dialog for the ACTIVE layer. Snapshots its
+     * buffer and content bounding box ONCE — every subsequent slider move
+     * re-renders the whole preview fresh from that one frozen snapshot,
+     * same "snapshot-once-then-rederive" pattern as Rotate/Resize
+     * Selection, so scrubbing a slider never compounds resample error.
+     */
+    promptLayerArray() {
+      const buf = this.buffer;
+      const region = window.PAE.PixelBuffer.boundingBoxOfContent(buf);
+      if (!region) {
+        alert("This layer is empty — there's nothing to repeat into an array.");
+        return;
+      }
+      this._layerArraySource = buf.clone();
+      this._layerArrayPivot = { x: region.x + region.w / 2, y: region.y + region.h / 2 };
+
+      document.getElementById('layer-array-count').value = 4;
+      document.getElementById('layer-array-count-value').textContent = '4';
+      document.getElementById('layer-array-distance').value = 0;
+      document.getElementById('layer-array-distance-value').textContent = '0px';
+      document.getElementById('layer-array-rotation').value = 0;
+      document.getElementById('layer-array-rotation-value').textContent = '0°';
+      document.getElementById('layer-array-pos-x').value = 0;
+      document.getElementById('layer-array-pos-x-value').textContent = '0px';
+      document.getElementById('layer-array-pos-y').value = 0;
+      document.getElementById('layer-array-pos-y-value').textContent = '0px';
+
+      this.renderLayerArrayPreview();
+      document.getElementById('layer-array-dialog').showModal();
+    }
+
+    /** Cancel just drops the frozen snapshot — nothing was ever written to the real layer stack, so there's nothing to undo. */
+    cancelLayerArray() {
+      this._layerArraySource = null;
+      this._layerArrayPivot = null;
+    }
+
+    /** Reads + clamps the dialog's 5 fields. Shared by the live preview and the actual bake, so they can never disagree. */
+    _layerArrayParams() {
+      const count = Math.max(1, Math.min(64, Math.round(Number(document.getElementById('layer-array-count').value)) || 1));
+      const distance = Number(document.getElementById('layer-array-distance').value) || 0;
+      const rotation = Number(document.getElementById('layer-array-rotation').value) || 0;
+      const posX = Number(document.getElementById('layer-array-pos-x').value) || 0;
+      const posY = Number(document.getElementById('layer-array-pos-y').value) || 0;
+      return { count, distance, rotation, posX, posY };
+    }
+
+    /** Per-copy (dx, dy, angle) for array index `i` (1-indexed) — the orbit + position-increment math described above. Shared by the preview and the real bake. */
+    static _layerArrayOffset(i, { distance, rotation, posX, posY }) {
+      const angleDeg = rotation * i;
+      const radius = distance * i;
+      const rad = (angleDeg * Math.PI) / 180;
+      const dx = Math.round(radius * Math.cos(rad) + posX * i);
+      const dy = Math.round(radius * Math.sin(rad) + posY * i);
+      return { angleDeg, dx, dy };
+    }
+
+    /**
+     * Redraws the dialog's live preview: the untouched original plus every
+     * copy 1..count-1, all composited onto one shared buffer via
+     * PixelBuffer.transformInto (which leaves pixels a copy doesn't cover
+     * untouched, so earlier copies never get erased by later ones), then
+     * scaled to fit a fixed on-screen box — the same RENDER_CAP/DISPLAY_BOX
+     * idiom as the V Brush pipeline's own preview. Called once when the
+     * dialog opens and again on every field's `input` event.
+     */
+    renderLayerArrayPreview() {
+      const source = this._layerArraySource;
+      const canvas = document.getElementById('layer-array-preview-canvas');
+      if (!source || !canvas) return;
+      const params = this._layerArrayParams();
+      const pivot = this._layerArrayPivot;
+
+      const preview = window.PAE.PixelBuffer.createBlank(source.width, source.height);
+      preview.copyFrom(source); // copy 0: the original, untouched
+      for (let i = 1; i < params.count; i++) {
+        const { angleDeg, dx, dy } = App._layerArrayOffset(i, params);
+        window.PAE.PixelBuffer.transformInto(preview, source, { pivotX: pivot.x, pivotY: pivot.y, angleDeg, dx, dy });
+      }
+
+      const MAX_DISPLAY = 260;
+      const scale = Math.max(1, Math.min(8, MAX_DISPLAY / Math.max(preview.width, preview.height)));
+      canvas.width = Math.round(preview.width * scale);
+      canvas.height = Math.round(preview.height * scale);
+      const ctx = canvas.getContext('2d');
+      ctx.imageSmoothingEnabled = false;
+      const src = document.createElement('canvas');
+      src.width = preview.width;
+      src.height = preview.height;
+      src.getContext('2d').putImageData(preview.toImageData(), 0, 0);
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(src, 0, 0, preview.width, preview.height, 0, 0, canvas.width, canvas.height);
+    }
+
+    /**
+     * "Create" — bakes `count - 1` brand-new real layers, stacked above the
+     * active layer (each insert lands above the previous copy, so the
+     * final stack reads bottom-to-top as original, copy 1, copy 2, ...),
+     * each one's pixels built by transformInto against the same frozen
+     * snapshot/pivot the preview used. One history.commit() covers the
+     * whole array, since a frame's undo snapshot already captures its
+     * entire layer stack (see spriteProject.js) — Ctrl+Z undoes the whole
+     * array in one step.
+     */
+    confirmLayerArray() {
+      const source = this._layerArraySource;
+      if (!source) return;
+      const params = this._layerArrayParams();
+      if (params.count <= 1) {
+        // Nothing to bake — an array of just the original is a no-op.
+        this.cancelLayerArray();
+        return;
+      }
+      const pivot = this._layerArrayPivot;
+      const frame = this.project.currentFrame;
+      const baseName = frame.activeLayer.name;
+
+      this.history.commit();
+      for (let i = 1; i < params.count; i++) {
+        const { angleDeg, dx, dy } = App._layerArrayOffset(i, params);
+        const copyBuf = window.PAE.PixelBuffer.createBlank(frame.width, frame.height);
+        window.PAE.PixelBuffer.transformInto(copyBuf, source, { pivotX: pivot.x, pivotY: pivot.y, angleDeg, dx, dy });
+        frame.insertLayerAbove(`${baseName} (${i})`, copyBuf);
+      }
+      this._layerArraySource = null;
+      this._layerArrayPivot = null;
       this.canvasView.render();
       this.notifyChange();
     }
@@ -488,6 +824,71 @@
       height = Math.max(1, Math.min(512, Math.round(height) || DEFAULT_HEIGHT));
       this.project = window.PAE.SpriteProject.blank(width, height);
       this._afterFrameChange();
+    }
+
+    // ---- Project menu: Resize Canvas ---------------------------------------
+    // Grows or shrinks the WHOLE project's fixed frame size, in place — every
+    // frame's every layer is resized, unlike New Image (which throws the
+    // whole project away and starts blank). See resizeCanvas() below for why
+    // this ISN'T undoable via Ctrl+Z.
+
+    promptResizeCanvas() {
+      const dialog = document.getElementById('resize-canvas-dialog');
+      document.getElementById('resize-canvas-width').value = this.project.frameWidth;
+      document.getElementById('resize-canvas-height').value = this.project.frameHeight;
+      dialog.showModal();
+    }
+
+    /**
+     * Resizes every frame's every layer to `width`x`height`, keeping each
+     * layer's existing pixels anchored at whichever of the 9 anchor-grid
+     * positions is passed (e.g. `'top-left'`, `'center'`, `'bottom-right'`)
+     * — growing adds transparent space on the OTHER sides from the anchor;
+     * shrinking crops those other sides away. Uses PixelBuffer.blit, which
+     * already clips writes to the destination buffer's bounds, so both
+     * directions (and negative offsets, when shrinking) just work.
+     *
+     * Deliberately NOT wrapped in `history.commit()`: a frame's undo
+     * snapshot (see Frame._snapshot in spriteProject.js) only ever captures
+     * its LAYER STACK (pixels/name/visibility/active index) — never the
+     * frame's own width/height — so there is no way to make a dimension
+     * change itself undoable without a bigger rework of the history system.
+     * This puts Resize Canvas in the same "structural, not undoable"
+     * category as File > New / Import Frames / Import Sprite Sheet, which
+     * also fully replace the project with no history entry.
+     */
+    resizeCanvas(width, height, anchor = 'top-left') {
+      width = Math.max(1, Math.min(512, Math.round(width) || this.project.frameWidth));
+      height = Math.max(1, Math.min(512, Math.round(height) || this.project.frameHeight));
+      const oldWidth = this.project.frameWidth;
+      const oldHeight = this.project.frameHeight;
+      if (width === oldWidth && height === oldHeight) return;
+
+      const { dx, dy } = App._anchorOffset(anchor, oldWidth, oldHeight, width, height);
+      this.project.frames.forEach((frame) => {
+        frame.width = width;
+        frame.height = height;
+        frame.layers.forEach((layer) => {
+          const resized = window.PAE.PixelBuffer.createBlank(width, height);
+          resized.blit(layer.buffer, dx, dy);
+          layer.buffer = resized;
+        });
+      });
+      this.project.frameWidth = width;
+      this.project.frameHeight = height;
+      this._afterFrameChange();
+    }
+
+    /** Where the OLD content's top-left corner should land in the NEW buffer, for one of the 9 anchor-grid positions. */
+    static _anchorOffset(anchor, oldWidth, oldHeight, newWidth, newHeight) {
+      const [vertical, horizontal] = anchor.split('-'); // 'top'|'middle'|'bottom', 'left'|'center'|'right'
+      let dx = 0;
+      let dy = 0;
+      if (horizontal === 'center') dx = Math.round((newWidth - oldWidth) / 2);
+      else if (horizontal === 'right') dx = newWidth - oldWidth;
+      if (vertical === 'middle') dy = Math.round((newHeight - oldHeight) / 2);
+      else if (vertical === 'bottom') dy = newHeight - oldHeight;
+      return { dx, dy };
     }
 
     openImageFromDisk() {
@@ -702,11 +1103,11 @@
       dialog.querySelectorAll('[data-export-format]').forEach((btn) => {
         btn.classList.toggle('active', btn.dataset.exportFormat === format);
       });
-      const hint = document.getElementById('export-hint');
-      hint.textContent =
-        typeof window.showSaveFilePicker === 'function'
-          ? 'Your browser will let you choose exactly where to save it.'
-          : 'Saves to your browser’s downloads location.';
+      // "Frames (ZIP)" — break the sprite sheet back apart into one PNG per
+      // frame — only makes sense, and only appears, when there's more than
+      // one frame to break apart.
+      document.getElementById('export-format-frameszip').hidden = !multiFrame;
+      this._updateExportHint(format);
       dialog.showModal();
       document.getElementById('export-filename').select();
     }
@@ -717,8 +1118,25 @@
       return active ? active.dataset.exportFormat : 'png';
     }
 
+    /** Updates the Export dialog's hint line for whichever format is now selected — called on open and again on every format-button click. */
+    _updateExportHint(format) {
+      const hint = document.getElementById('export-hint');
+      if (format === 'frames-zip') {
+        hint.textContent = 'Each frame will be saved as its own numbered PNG, all bundled into one .zip file.';
+      } else {
+        hint.textContent =
+          typeof window.showSaveFilePicker === 'function'
+            ? 'Your browser will let you choose exactly where to save it.'
+            : 'Saves to your browser’s downloads location.';
+      }
+    }
+
     async confirmExport(filename, format) {
       try {
+        if (format === 'frames-zip') {
+          await this.confirmExportFramesZip(filename);
+          return;
+        }
         // A single-frame project exports exactly as it always did. A
         // multi-frame project is combined left-to-right into one sprite
         // sheet image first — that's the whole "save as a sprite sheet"
@@ -734,6 +1152,21 @@
         console.error(err);
         alert('Sorry, exporting failed.');
       }
+    }
+
+    /**
+     * "Breaks apart" the sprite sheet: every frame, flattened, saved as its
+     * own numbered PNG (see FileIO.exportFramesAsZip for the naming/padding
+     * scheme), all bundled into one .zip so it's a single save/download
+     * rather than one native-picker prompt (or one anchor-click download)
+     * per frame. Left un-wrapped in its own try/catch — the caller,
+     * confirmExport, already wraps this the same way it wraps a plain
+     * image export, including the same "declined" cancel handling.
+     */
+    async confirmExportFramesZip(filename) {
+      const buffers = this.project.frames.map((frame) => frame.getCompositedBuffer());
+      const safeName = (filename || '').trim() || 'sprite-frames';
+      await window.PAE.FileIO.exportFramesAsZip(buffers, safeName);
     }
 
     // ---- Palettes menu actions ------------------------------------------
@@ -812,7 +1245,9 @@
     window.PAE.initFilmstrip(app);
     window.PAE.initLayersPanel(app);
     window.PAE.initSelectionOverlay(app);
+    window.PAE.initObjectOverlay(app);
     window.PAE.initVBrushPipelinePanel(app);
+    window.PAE.initStampEditorPanel(app);
 
     // File inputs live outside menu.js/ui.js since they're shared plumbing.
     document.getElementById('open-file-input').addEventListener('change', (e) => {
@@ -868,11 +1303,69 @@
     });
     document.getElementById('new-image-cancel').addEventListener('click', () => dialog.close());
 
-    // Export dialog (see App.promptExport/confirmExport/_selectedExportFormat)
+    // Resize Canvas dialog (Project menu — see App.promptResizeCanvas/resizeCanvas)
+    const resizeCanvasDialog = document.getElementById('resize-canvas-dialog');
+    const resizeCanvasAnchorGrid = document.getElementById('resize-canvas-anchor');
+    resizeCanvasAnchorGrid.querySelectorAll('[data-anchor]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        resizeCanvasAnchorGrid.querySelectorAll('[data-anchor]').forEach((b) => b.classList.toggle('active', b === btn));
+      });
+    });
+    document.getElementById('resize-canvas-form').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const width = Number(document.getElementById('resize-canvas-width').value);
+      const height = Number(document.getElementById('resize-canvas-height').value);
+      const anchorBtn = resizeCanvasAnchorGrid.querySelector('[data-anchor].active') || resizeCanvasAnchorGrid.querySelector('[data-anchor]');
+      app.resizeCanvas(width, height, anchorBtn.dataset.anchor);
+      resizeCanvasDialog.close();
+    });
+    document.getElementById('resize-canvas-cancel').addEventListener('click', () => resizeCanvasDialog.close());
+
+    // Layer Array dialog (Layers panel header's "Array…" button — see
+    // App.promptLayerArray/renderLayerArrayPreview/confirmLayerArray/cancelLayerArray)
+    const layerArrayDialog = document.getElementById('layer-array-dialog');
+    document.getElementById('layer-array-add').addEventListener('click', () => app.promptLayerArray());
+    [
+      ['layer-array-count', 'layer-array-count-value', (v) => `${Math.round(Number(v))}`],
+      ['layer-array-distance', 'layer-array-distance-value', (v) => `${v}px`],
+      ['layer-array-rotation', 'layer-array-rotation-value', (v) => `${v}°`],
+      ['layer-array-pos-x', 'layer-array-pos-x-value', (v) => `${v}px`],
+      ['layer-array-pos-y', 'layer-array-pos-y-value', (v) => `${v}px`],
+    ].forEach(([inputId, valueId, format]) => {
+      const input = document.getElementById(inputId);
+      const value = document.getElementById(valueId);
+      input.addEventListener('input', () => {
+        value.textContent = format(input.value);
+        app.renderLayerArrayPreview();
+      });
+    });
+    document.getElementById('layer-array-form').addEventListener('submit', (e) => {
+      e.preventDefault();
+      app.confirmLayerArray();
+      layerArrayDialog.close();
+    });
+    document.getElementById('layer-array-cancel').addEventListener('click', () => {
+      app.cancelLayerArray();
+      layerArrayDialog.close();
+    });
+
+    // Export dialog (see App.promptExport/confirmExport/_selectedExportFormat/_updateExportHint)
     const exportDialog = document.getElementById('export-dialog');
     exportDialog.querySelectorAll('[data-export-format]').forEach((btn) => {
       btn.addEventListener('click', () => {
         exportDialog.querySelectorAll('[data-export-format]').forEach((b) => b.classList.toggle('active', b === btn));
+        const format = btn.dataset.exportFormat;
+        app._updateExportHint(format);
+        // Smart-default the filename between the sheet-as-one-image name and
+        // the frames-as-a-zip name as the format toggles — but only while
+        // the field still holds one of those two DEFAULTS, so a name Roger
+        // actually typed himself is never overwritten out from under him.
+        const filenameInput = document.getElementById('export-filename');
+        if (format === 'frames-zip' && filenameInput.value === 'sprite-sheet') {
+          filenameInput.value = 'sprite-frames';
+        } else if (format !== 'frames-zip' && filenameInput.value === 'sprite-frames') {
+          filenameInput.value = 'sprite-sheet';
+        }
       });
     });
     document.getElementById('export-form').addEventListener('submit', (e) => {

@@ -53,13 +53,44 @@ class Frame {
     return window.PAE.PixelBuffer.compositeLayers(this.layers, this.width, this.height);
   }
 
+  /**
+   * A history snapshot also carries whatever pixel SELECTION (see
+   * selection.js) was in effect at the exact moment it was taken — Roger:
+   * "undo should bring the selection box back." Frame itself doesn't own
+   * the live selection (App does, since it's shared/cleared across frame
+   * switches — see App._afterFrameChange), so this reaches for
+   * `window.PAE.app` lazily, only when a snapshot is actually taken/
+   * restored (always well after boot, never at Frame-construction time,
+   * so it's safe even though `window.PAE.app` doesn't exist yet the
+   * moment the very first Frame is built). `commit()` is always called
+   * BEFORE the mutation it's guarding (see history.js's header comment),
+   * so this captures the selection exactly as it was right before that
+   * action — which is exactly what undo should hand back.
+   */
   _snapshot() {
-    return { activeLayerIndex: this.activeLayerIndex, layers: this.layers.map((l) => l.clone()) };
+    const app = window.PAE.app;
+    const liveSelection = app ? app.selection.get() : null;
+    return {
+      activeLayerIndex: this.activeLayerIndex,
+      layers: this.layers.map((l) => l.clone()),
+      selection: Frame._cloneSelection(liveSelection),
+    };
   }
 
   _restore(snapshot) {
     this.activeLayerIndex = snapshot.activeLayerIndex;
     this.layers = snapshot.layers.map((l) => l.clone());
+    const app = window.PAE.app;
+    if (!app) return;
+    const restored = Frame._cloneSelection(snapshot.selection);
+    if (restored) app.selection.set(restored);
+    else app.selection.clear();
+  }
+
+  /** Deep-copies a selection rect (mask included) so a stored snapshot and the live selection never share mutable state. `null` in, `null` out. */
+  static _cloneSelection(sel) {
+    if (!sel) return null;
+    return { ...sel, mask: sel.mask ? new Uint8Array(sel.mask) : null };
   }
 
   /** Deep copy — used when duplicating a whole frame (the filmstrip's "insert a copy" gap button). */
