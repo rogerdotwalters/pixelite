@@ -33,6 +33,15 @@ class Frame {
     this.height = height;
     this.layers = layers && layers.length ? layers : [new window.PAE.Layer('Layer 1', window.PAE.PixelBuffer.createBlank(width, height))];
     this.activeLayerIndex = 0;
+    // Roger's ask: a checkmark per filmstrip tile that says whether this
+    // frame is part of the animation preview / GIF export (see
+    // filmstrip.js's `.filmstrip-check` and animationPreview.js). This is
+    // deliberately NOT part of `_snapshot()`/`_restore()` below — same
+    // category as a frame's own width/height or its existence at all
+    // (insertFrame/deleteFrameAt, both also outside undo — see this
+    // file's header comment) rather than a per-pixel edit, so toggling it
+    // doesn't consume/interact with this frame's own undo stack.
+    this.previewEnabled = true;
     this.history = new window.PAE.HistoryManager(
       () => this._snapshot(),
       (snapshot) => this._restore(snapshot)
@@ -93,9 +102,11 @@ class Frame {
     return { ...sel, mask: sel.mask ? new Uint8Array(sel.mask) : null };
   }
 
-  /** Deep copy — used when duplicating a whole frame (the filmstrip's "insert a copy" gap button). */
+  /** Deep copy — used when duplicating a whole frame (the filmstrip's "insert a copy" gap button). Carries `previewEnabled` over onto the copy, same as every other per-frame flag. */
   clone() {
-    return new Frame(this.width, this.height, this.layers.map((l) => l.clone()));
+    const copy = new Frame(this.width, this.height, this.layers.map((l) => l.clone()));
+    copy.previewEnabled = this.previewEnabled;
+    return copy;
   }
 
   // ---- layer management ---------------------------------------------------
@@ -294,6 +305,17 @@ class SpriteProject {
       sheet.blit(frame.getCompositedBuffer(), i * this.frameWidth, 0);
     });
     return sheet;
+  }
+
+  /**
+   * Every frame with its checkmark on (`frame.previewEnabled`), flattened,
+   * in frame order — what the Preview panel loops through and what
+   * "Export as GIF" bakes (see animationPreview.js). An UNchecked frame is
+   * still perfectly normal to click into and edit from the filmstrip; it's
+   * only left out of this list.
+   */
+  previewFrames() {
+    return this.frames.filter((f) => f.previewEnabled).map((f) => f.getCompositedBuffer());
   }
 }
 

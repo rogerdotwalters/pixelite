@@ -20,11 +20,16 @@
 (function () {
   const DEFAULT_WIDTH = 32;
   const DEFAULT_HEIGHT = 32;
+  const ANCHOR_HANDLE_HIT_PX = 8; // screen pixels; divided by zoom for hit-testing in image space — see App.hitTestLayerAnchor
 
   class App {
     constructor() {
       this.project = window.PAE.SpriteProject.blank(DEFAULT_WIDTH, DEFAULT_HEIGHT);
       this.palette = new window.PAE.PaletteManager();
+      // Roger's ask: "a new section that is a personal palette" — one flat,
+      // always-visible list of colors, separate from PaletteManager's
+      // several named/switchable palettes above. See personalPalette.js.
+      this.personalPalette = new window.PAE.PersonalPalette();
       this.colorMixer = new window.PAE.ColorMixer();
       this.colorMixer.setBase(this.palette.getActiveColor()); // mixer starts centered on whatever's active
       this.colorHistory = new window.PAE.ColorHistory();
@@ -39,6 +44,21 @@
       this.vbrushRadius = 4; // V Brush: circular radius in pixels
       this.vbrushColorLimit = 8; // V Brush: hard cap on distinct colors it'll use per dab
       this.vbrushPipeline = { nodes: [] }; // V Brush: ordered node list (Perlin noise/math/palette-pick/color-clamp) — see vbrushPipeline.js. Empty = the brush's original, simpler behavior.
+      // Highlight/Shadow: a combined Dodge/Burn-style brush — Roger's ask,
+      // "a highlighter and shadowing brush that is based on pixel size" —
+      // see tools/highlightShadowTool.js. `highlightShadowMode` is
+      // 'highlight' (lighten, toward white) or 'shadow' (darken, toward black).
+      this.highlightShadowRadius = 4;
+      this.highlightShadowStrength = 0.5;
+      this.highlightShadowMode = 'highlight';
+      // Layers panel's ⚓ toggle — Roger's ask: "a toggleable view that
+      // turns anchor points on and off on the layers. So that I can easily
+      // click and drag all the layers without having to switch." See
+      // layerAnchorsOverlay.js (drawing) and this file's "layer anchors"
+      // section below (hit-testing + the actual drag, which has to run
+      // ahead of whatever tool is currently active — see _wireCanvasEvents).
+      this.anchorPointsVisible = false;
+      this._anchorDrag = null; // {index, startPt, snapshot} while a layer anchor is being dragged, else null
       // Stamp Brush: the current stamp pattern (painted in its own mini
       // editor — see stampBrush.js's Stamp Editor dialog), plus the two
       // toggles for how it's painted onto the canvas (see
@@ -59,6 +79,7 @@
       this.clipboard = null; // { x, y, buffer } from the last Copy/Cut — see copySelection()
       this._filterSnapshot = null; // pre-filter buffer, while a filter dialog is open — see openBrightnessContrastDialog()
       this._changeListeners = [];
+      this._settingsRestoredListeners = [];
       // Fired by toolCtx.requestRender() (below), in addition to the main
       // canvas repaint, so a tool's own on-canvas overlay can redraw in
       // lockstep with every mousemove-driven recompute — currently just
@@ -126,6 +147,9 @@
         getVBrushRadius: () => this.vbrushRadius,
         getVBrushColorLimit: () => this.vbrushColorLimit,
         getVBrushPipeline: () => this.vbrushPipeline,
+        getHighlightShadowRadius: () => this.highlightShadowRadius,
+        getHighlightShadowStrength: () => this.highlightShadowStrength,
+        getHighlightShadowMode: () => this.highlightShadowMode,
         getStamp: () => this.stamp,
         getStampAnchorMode: () => this.stampAnchorMode,
         getStampBlendMode: () => this.stampBlendMode,
@@ -163,6 +187,10 @@
       this.toolManager.register(new window.PAE.LineTool());
       this.toolManager.register(new window.PAE.ShapeTool('rect', 'Rectangle'));
       this.toolManager.register(new window.PAE.ShapeTool('ellipse', 'Ellipse'));
+      this.toolManager.register(new window.PAE.ShapeTool('triangle', 'Triangle'));
+      this.toolManager.register(new window.PAE.ShapeTool('circle', 'Circle'));
+      this.toolManager.register(new window.PAE.ShapeTool('hexagon', 'Hexagon'));
+      this.toolManager.register(new window.PAE.ShapeTool('octagon', 'Octagon'));
       this.toolManager.register(new window.PAE.BlenderTool());
       this.toolManager.register(new window.PAE.EraserTool());
       this.toolManager.register(new window.PAE.MirrorPenTool());
@@ -171,6 +199,7 @@
       this.toolManager.register(new window.PAE.RotateSelectionTool());
       this.toolManager.register(new window.PAE.ResizeSelectionTool());
       this.toolManager.register(new window.PAE.VBrushTool());
+      this.toolManager.register(new window.PAE.HighlightShadowTool());
       this.toolManager.register(new window.PAE.StampBrushTool());
       this.toolManager.register(new window.PAE.SmoothingPencilTool());
 
@@ -204,6 +233,25 @@
     /** Registers a callback fired every time toolCtx.requestRender() runs — see the constructor's `_overlayRenderers` comment. */
     onOverlayRender(fn) {
       this._overlayRenderers.push(fn);
+    }
+
+    /**
+     * Fired once, right at the end of Project Open (see restoreProject
+     * below) — separate from the much more frequent onChange/notifyChange
+     * above (which fires on every brush stroke/layer edit and drives things
+     * like the Layers panel and Undo's enabled state) because THIS is only
+     * about pushing a bunch of restored slider/segmented-button VALUES back
+     * into their DOM controls — ui.js's initToolOptions listens here to do
+     * exactly that (see its syncToolOptionsFromApp) — something that only
+     * ever needs to happen right after a project file replaces every one of
+     * those settings at once, never on an ordinary paint stroke.
+     */
+    onSettingsRestored(fn) {
+      this._settingsRestoredListeners.push(fn);
+    }
+
+    _notifySettingsRestored() {
+      this._settingsRestoredListeners.forEach((fn) => fn(this));
     }
 
     // ---- current color / color mixer --------------------------------------
@@ -375,6 +423,86 @@
         }
       }
       return null;
+    }
+
+    // ---- layer anchors: drag any layer directly, without switching --------
+    // Roger's ask: "a toggleable view that turns anchor points on and off on
+    // the layers. So that I can easily click and drag all the layers without
+    // having to switch." See layerAnchorsOverlay.js for the actual drawing —
+    // this is the hit-testing + drag itself, which App._wireCanvasEvents
+    // above runs BEFORE forwarding a mousedown/mousemove/mouseup to whatever
+    // tool is currently active, so grabbing an anchor works no matter which
+    // tool (Pencil, Fill, anything) you happen to be using — no need to
+    // first click that layer's row in the Layers panel or switch tools.
+    // Deliberately move-only (no resize/rotate) — same "just click and
+    // drag" scope as Roger's own description; that's what the Object tool
+    // (plus a layer's "Acts as Object" flag) already covers separately.
+
+    /** The Layers panel's ⚓ toggle. */
+    toggleAnchorPoints() {
+      this.anchorPointsVisible = !this.anchorPointsVisible;
+      this.notifyChange();
+    }
+
+    /**
+     * Returns the index of whichever layer's anchor dot is under fractional
+     * image-pixel point `pt` (see ctx.eventToFractionalPixel), or null.
+     * Every layer with any painted content gets a dot at its own bounding
+     * box's center (see layerAnchorsOverlay.js — same box, so what's hit-
+     * tested here always matches what's drawn). Checked topmost-layer-first,
+     * matching what you'd expect to grab by looking at the picture when two
+     * layers' anchors happen to overlap.
+     */
+    hitTestLayerAnchor(pt) {
+      if (!this.anchorPointsVisible) return null;
+      const zoom = this.canvasView.zoom;
+      const tol = ANCHOR_HANDLE_HIT_PX / zoom;
+      const frame = this.project.currentFrame;
+      for (let i = frame.layers.length - 1; i >= 0; i--) {
+        const box = window.PAE.PixelBuffer.boundingBoxOfContent(frame.layers[i].buffer);
+        if (!box) continue;
+        const hx = box.x + box.w / 2;
+        const hy = box.y + box.h / 2;
+        if (Math.abs(pt.x - hx) <= tol && Math.abs(pt.y - hy) <= tol) return i;
+      }
+      return null;
+    }
+
+    /** Starts dragging layer `index` — one history.commit() for the whole drag, same "commit once at mousedown" convention as every other drag-based tool (Object tool, Blender, ...). */
+    _beginLayerAnchorDrag(index, pt) {
+      const layer = this.project.currentFrame.layers[index];
+      if (!layer) return;
+      this.history.commit();
+      this._anchorDrag = { index, startPt: pt, snapshot: layer.buffer.clone() };
+      this.notifyChange(); // a drag just started -> history.commit() ran, Undo should enable
+    }
+
+    /**
+     * Re-derives the dragged layer's ENTIRE buffer fresh from the drag-start
+     * snapshot on every move (same "snapshot once, then re-render from
+     * scratch" convention as the Object tool's own moves — see
+     * tools/objectTool.js's _paintMove) rather than nudging it a little
+     * further each call, so rounding error never compounds across a long,
+     * wobbly drag.
+     */
+    _updateLayerAnchorDrag(pt) {
+      const drag = this._anchorDrag;
+      if (!drag) return;
+      const layer = this.project.currentFrame.layers[drag.index];
+      if (!layer) return;
+      const dx = Math.round(pt.x - drag.startPt.x);
+      const dy = Math.round(pt.y - drag.startPt.y);
+      const moved = window.PAE.PixelBuffer.createBlank(this.project.frameWidth, this.project.frameHeight);
+      moved.blit(drag.snapshot, dx, dy); // PixelBuffer.blit already clips to the destination's bounds, both directions
+      layer.buffer = moved;
+      this.canvasView.render();
+      this._overlayRenderers.forEach((fn) => fn());
+    }
+
+    _endLayerAnchorDrag() {
+      if (!this._anchorDrag) return;
+      this._anchorDrag = null;
+      this.notifyChange();
     }
 
     // ---- pixel selection: clipboard + copy/cut to a new layer -------------
@@ -810,6 +938,40 @@
       this.insertFrameAt(this.project.currentIndex + 1, { duplicate });
     }
 
+    // ---- Preview panel / GIF export ---------------------------------------
+    // See spriteProject.js's Frame.previewEnabled and animationPreview.js.
+
+    /** The filmstrip's checkmark on a tile (see filmstrip.js). Deliberately no `history.commit()` — this is frame metadata, not a pixel edit, same non-undoable category as inserting/deleting a frame. */
+    toggleFramePreview(index) {
+      const frame = this.project.frames[index];
+      if (!frame) return;
+      frame.previewEnabled = !frame.previewEnabled;
+      this.notifyChange();
+    }
+
+    /**
+     * "Export as GIF…" in the Preview panel. Bakes whichever frames are
+     * currently checked, in frame order, into one animated .gif at
+     * `fps` frames per second — see gifEncoder.js for the format itself
+     * and fileIO.js's `_saveBlob` for where the file actually lands.
+     * Same try/catch shape as `confirmExport` above: a cancelled native
+     * save dialog is not an error worth alerting about.
+     */
+    async exportPreviewGif(fps) {
+      const buffers = this.project.previewFrames();
+      if (!buffers.length) {
+        alert('Check at least one frame in the filmstrip first.');
+        return;
+      }
+      try {
+        await window.PAE.FileIO.exportGif(buffers, fps, 'pixel-art-animation');
+      } catch (err) {
+        if (err && err.code === 'declined') return; // user backed out of the save dialog/capability prompt, nothing to report
+        console.error(err);
+        alert('Sorry, exporting the GIF failed.');
+      }
+    }
+
     // ---- File menu actions --------------------------------------------
 
     promptNewImage() {
@@ -1197,6 +1359,176 @@
       }
     }
 
+    // ---- File menu: Save Project / Open Project ----------------------------
+    // Roger's ask: "I want to be able to save the file along with its
+    // layers," clarified to mean a full WORKSPACE snapshot, not just the
+    // picture — every frame's every layer (see PixelBuffer.toBase64/
+    // fromBase64), the personal palette (Roger's other new ask — see
+    // personalPalette.js), and every current tool/brush setting + zoom, all
+    // in one ".paeproj" JSON file you can reopen later and pick up exactly
+    // where you left off. Deliberately separate from File > New/Open (which
+    // only ever load a plain flattened PNG/JPG into a brand-new 1-layer
+    // project) and Export (which only ever WRITES a flattened image, never
+    // reads one back) — this is the only round trip that preserves layers.
+
+    /** Everything a saved project needs, as a plain JS object — shared by saveProjectToDisk and restoreProject's inverse below. */
+    serializeProject() {
+      return {
+        formatVersion: 1,
+        savedAt: new Date().toISOString(),
+        frameWidth: this.project.frameWidth,
+        frameHeight: this.project.frameHeight,
+        currentIndex: this.project.currentIndex,
+        frames: this.project.frames.map((frame) => ({
+          previewEnabled: frame.previewEnabled,
+          activeLayerIndex: frame.activeLayerIndex,
+          layers: frame.layers.map((layer) => ({
+            name: layer.name,
+            visible: layer.visible,
+            actAsObject: layer.actAsObject,
+            width: layer.buffer.width,
+            height: layer.buffer.height,
+            pixels: layer.buffer.toBase64(),
+          })),
+        })),
+        // A layer's `rotationOrigin` (see layer.js) is deliberately left out
+        // here — it's just a safety net so a SECOND rotate gesture resamples
+        // from a pristine source instead of an already-rotated one, not
+        // meaningful state on its own. Reopening a saved project simply
+        // means the very next rotate on any layer re-captures its current
+        // pixels as a fresh "0°" reference, exactly as if that layer had
+        // just never been rotated before — never lossy, just occasionally
+        // (rarely) one rotate-quality "reset" earlier than it would have
+        // been in the original unsaved session.
+        personalPalette: this.personalPalette.getColors(),
+        toolId: this.toolManager.activeId,
+        zoom: this.canvasView.zoom,
+        settings: {
+          opacity: this.opacity,
+          shapeFill: this.shapeFill,
+          blenderRadius: this.blenderRadius,
+          blenderStrength: this.blenderStrength,
+          brushSize: this.brushSize,
+          mirrorAxis: this.mirrorAxis,
+          vbrushRadius: this.vbrushRadius,
+          vbrushColorLimit: this.vbrushColorLimit,
+          vbrushPipeline: this.vbrushPipeline,
+          highlightShadowRadius: this.highlightShadowRadius,
+          highlightShadowStrength: this.highlightShadowStrength,
+          highlightShadowMode: this.highlightShadowMode,
+          stampAnchorMode: this.stampAnchorMode,
+          stampBlendMode: this.stampBlendMode,
+          stamp: { width: this.stamp.width, height: this.stamp.height, pixels: this.stamp.buffer.toBase64() },
+          smoothingMode: this.smoothingMode,
+          smoothingEvenStep: this.smoothingEvenStep,
+          smoothingMirrorHalves: this.smoothingMirrorHalves,
+          smoothingTiming: this.smoothingTiming,
+        },
+      };
+    }
+
+    /** File > Save Project… — no filename dialog (unlike Export): the native Save picker, where the browser supports one, already lets Roger rename/relocate it (see FileIO._saveBlob); everywhere else it just downloads under a fixed default name. */
+    async saveProjectToDisk() {
+      try {
+        const json = JSON.stringify(this.serializeProject());
+        await window.PAE.FileIO.exportProject(json, 'pixel-art-project');
+      } catch (err) {
+        if (err && err.code === 'declined') return; // user backed out of the save dialog/capability prompt, nothing to report
+        console.error(err);
+        alert('Sorry, saving the project failed.');
+      }
+    }
+
+    openProjectFromDisk() {
+      document.getElementById('open-project-input').click();
+    }
+
+    async loadProjectFile(file) {
+      try {
+        const text = await file.text();
+        const data = JSON.parse(text);
+        this.restoreProject(data);
+      } catch (err) {
+        alert(err.message || 'Could not open that project file.');
+      }
+    }
+
+    /**
+     * Rebuilds every real Layer/Frame/SpriteProject object from a
+     * serializeProject()-shaped plain object (the inverse of that method),
+     * then restores the personal palette and every tool/brush setting +
+     * zoom + active tool, and finally fires onSettingsRestored so ui.js can
+     * push all of those restored values back into their own slider/
+     * checkbox/segmented-button DOM controls (see ui.js's
+     * syncToolOptionsFromApp) — without that, the sliders would keep
+     * showing whatever they last showed even though app state underneath
+     * them just changed out from under them.
+     *
+     * Deliberately NOT wrapped in history.commit()/undoable — same
+     * "structural, replaces the whole project" category as File > New/Open/
+     * Import, none of which are undoable either (see resizeCanvas's header
+     * comment for why this app draws that line where it does).
+     */
+    restoreProject(data) {
+      if (!data || !Array.isArray(data.frames) || !data.frames.length) {
+        throw new Error("That doesn't look like a Pixel Art Editor project file.");
+      }
+      const frameWidth = Math.max(1, Math.round(data.frameWidth) || DEFAULT_WIDTH);
+      const frameHeight = Math.max(1, Math.round(data.frameHeight) || DEFAULT_HEIGHT);
+      const frames = data.frames.map((frameData) => {
+        const layers = (frameData.layers || []).map((layerData) => {
+          const buffer = window.PAE.PixelBuffer.fromBase64(layerData.pixels, layerData.width, layerData.height);
+          return new window.PAE.Layer(layerData.name, buffer, layerData.visible !== false, !!layerData.actAsObject);
+        });
+        const frame = new window.PAE.Frame(frameWidth, frameHeight, layers.length ? layers : undefined);
+        frame.activeLayerIndex = Math.max(0, Math.min(frameData.activeLayerIndex || 0, frame.layers.length - 1));
+        frame.previewEnabled = frameData.previewEnabled !== false;
+        return frame;
+      });
+      this.project = new window.PAE.SpriteProject(frameWidth, frameHeight, frames);
+      this.project.currentIndex = Math.max(0, Math.min(Math.round(data.currentIndex) || 0, frames.length - 1));
+
+      if (Array.isArray(data.personalPalette)) this.personalPalette.replaceAll(data.personalPalette);
+
+      const s = data.settings || {};
+      if (typeof s.opacity === 'number') this.opacity = s.opacity;
+      if (typeof s.shapeFill === 'boolean') this.shapeFill = s.shapeFill;
+      if (typeof s.blenderRadius === 'number') this.blenderRadius = s.blenderRadius;
+      if (typeof s.blenderStrength === 'number') this.blenderStrength = s.blenderStrength;
+      if (typeof s.brushSize === 'number') this.brushSize = s.brushSize;
+      if (typeof s.mirrorAxis === 'string') this.mirrorAxis = s.mirrorAxis;
+      if (typeof s.vbrushRadius === 'number') this.vbrushRadius = s.vbrushRadius;
+      if (typeof s.vbrushColorLimit === 'number') this.vbrushColorLimit = s.vbrushColorLimit;
+      if (s.vbrushPipeline) this.vbrushPipeline = s.vbrushPipeline;
+      if (typeof s.highlightShadowRadius === 'number') this.highlightShadowRadius = s.highlightShadowRadius;
+      if (typeof s.highlightShadowStrength === 'number') this.highlightShadowStrength = s.highlightShadowStrength;
+      if (typeof s.highlightShadowMode === 'string') this.highlightShadowMode = s.highlightShadowMode;
+      if (typeof s.stampAnchorMode === 'string') this.stampAnchorMode = s.stampAnchorMode;
+      if (typeof s.stampBlendMode === 'string') this.stampBlendMode = s.stampBlendMode;
+      if (s.stamp && s.stamp.pixels) {
+        this.stamp = {
+          width: s.stamp.width,
+          height: s.stamp.height,
+          buffer: window.PAE.PixelBuffer.fromBase64(s.stamp.pixels, s.stamp.width, s.stamp.height),
+        };
+      }
+      if (typeof s.smoothingMode === 'string') this.smoothingMode = s.smoothingMode;
+      if (typeof s.smoothingEvenStep === 'boolean') this.smoothingEvenStep = s.smoothingEvenStep;
+      if (typeof s.smoothingMirrorHalves === 'boolean') this.smoothingMirrorHalves = s.smoothingMirrorHalves;
+      if (typeof s.smoothingTiming === 'string') this.smoothingTiming = s.smoothingTiming;
+
+      if (typeof data.toolId === 'string' && this.toolManager.getTool(data.toolId)) {
+        this.toolManager.setActive(data.toolId, this.toolCtx);
+      }
+      if (typeof data.zoom === 'number') this.canvasView.setZoom(data.zoom);
+
+      this.selection.clear();
+      this.canvasView.render();
+      this.referenceView.render(this.project);
+      this.notifyChange();
+      this._notifySettingsRestored();
+    }
+
     // ---- pointer wiring --------------------------------------------------
 
     _wireCanvasEvents(canvasEl) {
@@ -1204,6 +1536,18 @@
 
       canvasEl.addEventListener('mousedown', (evt) => {
         isPointerDown = true;
+        // Layer anchors (see this file's "layer anchors" section below) sit
+        // ahead of every tool's own mousedown handling — clicking one grabs
+        // that layer and drags it directly, no matter which tool is
+        // currently active, which is the whole point of the toggle.
+        if (this.anchorPointsVisible) {
+          const pt = this.canvasView.eventToFractionalPixel(evt);
+          const hitIndex = this.hitTestLayerAnchor(pt);
+          if (hitIndex !== null) {
+            this._beginLayerAnchorDrag(hitIndex, pt);
+            return;
+          }
+        }
         const { x, y } = this.canvasView.eventToPixel(evt);
         this.toolManager.handleMouseDown(this.toolCtx, x, y, evt);
         this.notifyChange(); // a stroke just started -> history.commit() ran, Undo should enable
@@ -1211,6 +1555,10 @@
 
       canvasEl.addEventListener('mousemove', (evt) => {
         if (!isPointerDown) return;
+        if (this._anchorDrag) {
+          this._updateLayerAnchorDrag(this.canvasView.eventToFractionalPixel(evt));
+          return;
+        }
         const { x, y } = this.canvasView.eventToPixel(evt);
         this.toolManager.handleMouseMove(this.toolCtx, x, y, evt);
       });
@@ -1218,6 +1566,10 @@
       window.addEventListener('mouseup', (evt) => {
         if (!isPointerDown) return;
         isPointerDown = false;
+        if (this._anchorDrag) {
+          this._endLayerAnchorDrag();
+          return;
+        }
         const { x, y } = this.canvasView.eventToPixel(evt);
         this.toolManager.handleMouseUp(this.toolCtx, x, y, evt);
         this.notifyChange();
@@ -1230,6 +1582,122 @@
       // Right-click / context menu is reserved for future tool options
       // (e.g. eyedropper-on-right-click); suppress the browser menu for now.
       canvasEl.addEventListener('contextmenu', (e) => e.preventDefault());
+
+      // Touch: makes every tool work by dragging a finger, same as a mouse
+      // drag above, plus a two-finger pinch to zoom (there's no Ctrl+scroll-
+      // wheel on a touchscreen). Entirely separate listeners from the mouse
+      // ones above, so none of this can change mouse/desktop behavior at
+      // all — it only ever fires in response to an actual touch event.
+      this._wireTouchEvents(canvasEl);
+    }
+
+    /**
+     * Roger's ask: full finger-drawing support, not just a mobile-friendly
+     * layout. One finger draws (forwarded to the SAME ToolManager pointer
+     * events the mouse handlers above use, so every existing tool — Pencil,
+     * the shape tools, selection, etc. — just works); a second finger
+     * landing mid-stroke switches to pinch-to-zoom instead, the same way
+     * you'd expect a photo viewer to behave. `evt.preventDefault()` on both
+     * touchstart/touchmove is what stops the PAGE from scrolling/zooming
+     * itself while a finger is on the canvas — `touch-action: none` in
+     * style.css's `@media (pointer: coarse)` block does the same job at the
+     * CSS layer so there's no lag before the JS handler runs.
+     *
+     * There's no touch equivalent of the Shift key, so a finger drag can't
+     * constrain the Line/Shape tools to 45°/a perfect square the way a
+     * Shift-held mouse drag can — a documented, accepted gap (see the
+     * architecture notes), not an oversight.
+     */
+    _wireTouchEvents(canvasEl) {
+      // null | 'draw' | 'pinch' — which gesture is currently in progress.
+      let mode = null;
+      let pinchStartDist = 0;
+      let pinchStartZoom = 1;
+
+      // Touch objects have clientX/clientY but no shiftKey — this shim is
+      // what canvasView.eventToPixel and the tool hooks actually read, and
+      // shiftKey simply stays falsy (see the header comment above).
+      const touchPoint = (touch) => ({ clientX: touch.clientX, clientY: touch.clientY, shiftKey: false });
+      const distance = (t0, t1) => Math.hypot(t1.clientX - t0.clientX, t1.clientY - t0.clientY);
+
+      canvasEl.addEventListener(
+        'touchstart',
+        (evt) => {
+          evt.preventDefault();
+          if (evt.touches.length === 1) {
+            const touchPt = touchPoint(evt.touches[0]);
+            // Same layer-anchor-drag interception as the mouse path above
+            // (see App._wireCanvasEvents) — a finger on an anchor dot drags
+            // that layer directly, same as a mouse would.
+            if (this.anchorPointsVisible) {
+              const fpt = this.canvasView.eventToFractionalPixel(touchPt);
+              const hitIndex = this.hitTestLayerAnchor(fpt);
+              if (hitIndex !== null) {
+                mode = 'anchor';
+                this._beginLayerAnchorDrag(hitIndex, fpt);
+                return;
+              }
+            }
+            mode = 'draw';
+            const { x, y } = this.canvasView.eventToPixel(touchPt);
+            this.toolManager.handleMouseDown(this.toolCtx, x, y, touchPt);
+            this.notifyChange(); // a stroke just started -> history.commit() ran, Undo should enable
+          } else if (evt.touches.length === 2) {
+            // A second finger landing mid-stroke abandons the draw in
+            // progress the same way lifting the mouse would — never leave a
+            // half-finished stroke's history.commit() dangling with no
+            // matching "up" to close it out.
+            if (mode === 'draw') this.toolManager.handleLeave(this.toolCtx);
+            mode = 'pinch';
+            pinchStartDist = distance(evt.touches[0], evt.touches[1]);
+            pinchStartZoom = this.canvasView.zoom;
+          }
+        },
+        { passive: false }
+      );
+
+      canvasEl.addEventListener(
+        'touchmove',
+        (evt) => {
+          evt.preventDefault();
+          if (mode === 'anchor' && evt.touches.length === 1) {
+            this._updateLayerAnchorDrag(this.canvasView.eventToFractionalPixel(touchPoint(evt.touches[0])));
+          } else if (mode === 'draw' && evt.touches.length === 1) {
+            const pt = touchPoint(evt.touches[0]);
+            const { x, y } = this.canvasView.eventToPixel(pt);
+            this.toolManager.handleMouseMove(this.toolCtx, x, y, pt);
+          } else if (mode === 'pinch' && evt.touches.length === 2 && pinchStartDist > 0) {
+            const dist = distance(evt.touches[0], evt.touches[1]);
+            this.canvasView.setZoom(pinchStartZoom * (dist / pinchStartDist));
+          }
+        },
+        { passive: false }
+      );
+
+      const endTouch = (evt) => {
+        if (mode === 'anchor') {
+          this._endLayerAnchorDrag();
+        } else if (mode === 'draw' && evt.changedTouches.length > 0) {
+          // touchend's own `touches` list no longer has the lifted finger,
+          // but `changedTouches` still does.
+          const pt = touchPoint(evt.changedTouches[0]);
+          const { x, y } = this.canvasView.eventToPixel(pt);
+          this.toolManager.handleMouseUp(this.toolCtx, x, y, pt);
+          this.notifyChange();
+        }
+        if (evt.touches.length === 0) {
+          mode = null;
+        } else if (evt.touches.length === 1 && mode === 'pinch') {
+          // One finger of a pinch lifted — deliberately does NOT resume
+          // drawing from wherever the pinch happened to leave the remaining
+          // finger; that would paint an unintended stroke. End the gesture
+          // cleanly and require a fresh single-finger touch to draw again.
+          mode = null;
+        }
+      };
+
+      canvasEl.addEventListener('touchend', endTouch, { passive: false });
+      canvasEl.addEventListener('touchcancel', endTouch, { passive: false });
     }
   }
 
@@ -1243,11 +1711,19 @@
     window.PAE.initUI(app);
     window.PAE.initReferenceBar(app);
     window.PAE.initFilmstrip(app);
+    window.PAE.initAnimationPreview(app);
     window.PAE.initLayersPanel(app);
     window.PAE.initSelectionOverlay(app);
     window.PAE.initObjectOverlay(app);
+    window.PAE.initLayerAnchorsOverlay(app);
     window.PAE.initVBrushPipelinePanel(app);
     window.PAE.initStampEditorPanel(app);
+
+    // Map Generator mode (Round L): a separate tooling mode for painting
+    // Perlin-noise-driven terrain maps. Deliberately independent of the
+    // pixel-editor App instance — it manages its own project/state and is
+    // only shown/hidden via document.body.dataset.mode.
+    window.PAE.initMapGen();
 
     // File inputs live outside menu.js/ui.js since they're shared plumbing.
     document.getElementById('open-file-input').addEventListener('change', (e) => {
@@ -1258,6 +1734,11 @@
     document.getElementById('open-palette-input').addEventListener('change', (e) => {
       const file = e.target.files[0];
       if (file) app.loadPaletteFile(file);
+      e.target.value = '';
+    });
+    document.getElementById('open-project-input').addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (file) app.loadProjectFile(file);
       e.target.value = '';
     });
     document.getElementById('import-frames-input').addEventListener('change', (e) => {

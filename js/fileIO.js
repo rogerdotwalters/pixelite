@@ -206,6 +206,40 @@ const FileIO = {
     const zipBlob = window.PAE.ZipWriter.build(files);
     return FileIO._saveBlob(zipBlob, `${baseName}.zip`, { description: 'ZIP archive', mime: 'application/zip', ext: 'zip' });
   },
+
+  /**
+   * Bakes a sequence of already-flattened frame buffers into one animated
+   * .gif at `fps` frames per second (see gifEncoder.js for the format
+   * itself) and hands it to `_saveBlob` the same way every other export
+   * does.
+   * @param {Array<PAE.PixelBuffer>} buffers  one per frame, in playback order, all the same size
+   * @param {number} fps
+   * @param {string} filename  without extension
+   * @returns {Promise<{status: string}>}
+   */
+  async exportGif(buffers, fps, filename = 'animation') {
+    const bytes = window.PAE.GifEncoder.encode(buffers, { fps });
+    const blob = new Blob([bytes], { type: 'image/gif' });
+    return FileIO._saveBlob(blob, `${filename}.gif`, { description: 'GIF image', mime: 'image/gif', ext: 'gif' });
+  },
+
+  /**
+   * Project Save (see App.serializeProject/saveProjectToDisk) — hands the
+   * already-JSON.stringify'd project (every frame's every layer, the
+   * personal palette, and the app's own current tool/brush settings — see
+   * app.js for exactly what's included) to `_saveBlob` the same way every
+   * other export does, so it gets the same native-Save-dialog treatment a
+   * PNG/GIF export gets wherever the browser supports it, rather than the
+   * plain always-a-download-link shortcut the Palettes menu's "Save/Load
+   * palette set" buttons use (a smaller, lower-stakes save that predates
+   * this).
+   * @param {string} json  already-serialized project data
+   * @param {string} filename  without extension
+   */
+  async exportProject(json, filename = 'pixel-art-project') {
+    const blob = new Blob([json], { type: 'application/json' });
+    return FileIO._saveBlob(blob, `${filename}.paeproj`, { description: 'Pixel Art Editor project', mime: 'application/json', ext: 'paeproj' });
+  },
 };
 
 window.PAE = window.PAE || {};

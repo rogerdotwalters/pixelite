@@ -586,6 +586,16 @@ select:focus-visible,
   gap: 6px;
 }
 
+/* The ⚓ anchor-points toggle (see layerAnchorsOverlay.js) — same on/off
+   accent treatment as .eyedropper-btn.active, just scoped to this one
+   button's id since .icon-btn itself has no generic "active" look of its
+   own (most icon buttons here are one-shot actions, not toggles). */
+#layer-anchors-toggle.active {
+  background: var(--accent);
+  border-color: var(--accent-strong);
+  color: #fff;
+}
+
 .history-clear-btn {
   background: none;
   border: none;
@@ -647,7 +657,8 @@ select:focus-visible,
   background: var(--accent-strong);
 }
 
-#swatch-grid {
+#swatch-grid,
+#personal-palette-grid {
   display: grid;
   grid-template-columns: repeat(5, 1fr);
   gap: 6px;
@@ -1240,6 +1251,99 @@ select:focus-visible,
   background: var(--accent-2);
   border-color: var(--accent-2);
   color: #06202a;
+}
+
+/* Include-in-preview/GIF checkmark (see filmstrip.js). Always visible
+   (unlike .filmstrip-delete/.gap-btn, which only reveal on hover) since a
+   persistent checkbox needs to read at a glance without hovering every
+   tile — that's the whole point of scanning the strip for what's in. */
+.filmstrip-check {
+  position: absolute;
+  top: -6px;
+  left: -6px;
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  background: var(--surface-alt);
+  border: 1px solid var(--border);
+  color: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.filmstrip-check.checked {
+  background: var(--accent-2);
+  border-color: var(--accent-2);
+  color: #06202a;
+}
+
+/* =========================================================================
+   Preview panel: loops the checked frames at an adjustable FPS, plus
+   "Export as GIF" — see animationPreview.js / gifEncoder.js.
+   ========================================================================= */
+
+#preview-panel {
+  width: 220px;
+  flex: none;
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+  overflow-y: auto;
+}
+
+.preview-stage-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 176px;
+  margin-bottom: 12px;
+  background-image: linear-gradient(45deg, var(--checker-a) 25%, transparent 25%),
+    linear-gradient(-45deg, var(--checker-a) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, var(--checker-a) 75%),
+    linear-gradient(-45deg, transparent 75%, var(--checker-a) 75%);
+  background-size: 10px 10px;
+  background-position: 0 0, 0 5px, 5px -5px, -5px 0px;
+  background-color: var(--checker-b);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+#preview-canvas {
+  image-rendering: pixelated;
+  image-rendering: -moz-crisp-edges;
+  image-rendering: crisp-edges;
+}
+
+.preview-empty-hint {
+  margin: 0;
+  padding: 0 16px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.preview-controls-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 12px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.preview-controls-row input[type='range'] {
+  flex: 1;
+  min-width: 0;
+}
+
+#preview-fps-value {
+  font-family: var(--font-mono);
+  width: 4.2em;
+  text-align: right;
+}
+
+.preview-export-btn {
+  width: 100%;
 }
 
 /* =========================================================================
@@ -1867,6 +1971,13 @@ dialog h2 {
     border-bottom: 1px solid var(--border);
   }
 
+  #preview-panel {
+    width: 100%;
+    max-height: 40vh;
+    border-left: none;
+    border-top: 1px solid var(--border);
+  }
+
   #canvas-viewport {
     padding: 16px;
   }
@@ -1911,5 +2022,265 @@ dialog h2 {
     width: 15px;
     height: 15px;
     font-size: 9px;
+  }
+}
+
+/* =========================================================================
+   Responsive: touch input (any phone/tablet, any orientation) — separate
+   from the width-based phone-portrait block above on purpose. That block
+   is about available screen SPACE (stack the sidebar, shrink the
+   filmstrip); this one is about the INPUT METHOD — a draggable toolbar,
+   bigger tap targets, and scrollable dialogs matter just as much on a
+   phone turned sideways (often wider than 640px) as they do in portrait.
+   Matches on `pointer: coarse` (a touchscreen, whatever its width) OR the
+   same 640px width as above (so a manually-narrowed desktop window still
+   gets it too, consistent with the block above already changing layout
+   there). An ordinary mouse-driven desktop browser window matches NEITHER
+   condition and is completely unaffected either way.
+   ========================================================================= */
+@media (max-width: 640px), (pointer: coarse) {
+  /* Toolbar scrolls sideways instead of wrapping/squishing — every tool
+     stays one swipe-and-tap away, per Roger's own preferred approach. */
+  #toolbar {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  #toolbar > * {
+    flex-shrink: 0;
+  }
+
+  .toolbar-spacer {
+    flex: none;
+    width: 16px;
+  }
+
+  /* Same reasoning for the reference bar's own row of controls. */
+  #reference-bar {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  #reference-bar > * {
+    flex-shrink: 0;
+  }
+
+  /* A 26-34px button is comfortable for a mouse cursor but easy to miss
+     with a fingertip — bump the two shared button shapes up a bit. */
+  .tool-btn {
+    width: 40px;
+    height: 40px;
+  }
+
+  .icon-btn {
+    width: 32px;
+    height: 32px;
+  }
+
+  /* A tall dialog (Stamp Editor, V Brush Pipeline) has no native way to
+     scroll on its own — without this, its own Save/Cancel row could sit
+     entirely below a short phone viewport with no way to reach it. */
+  dialog {
+    max-height: 85vh;
+    overflow-y: auto;
+  }
+}
+
+/* =========================================================================
+   Responsive: what TOUCHING a drawing surface should do, specifically —
+   scoped to pointer:coarse alone (not width), since this is about input
+   capability, not how wide the window happens to be. Without this, a
+   finger dragging across the canvas would scroll/select the page instead
+   of (or in a jittery fight alongside) actually drawing — see
+   app.js's _wireTouchEvents / stampBrush.js's touch listeners, which are
+   what actually turn a touch into a paint stroke; this is what stops the
+   browser's own default touch gestures from fighting them.
+   ========================================================================= */
+@media (pointer: coarse) {
+  #canvas,
+  #stamp-editor-canvas,
+  #map-canvas {
+    touch-action: none;
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+}
+
+/* =========================================================================
+   Map Generator mode (Round L) — a separate mode, switched via the
+   .mode-switch buttons in #menu-bar (see index.html), for painting
+   Perlin-noise-driven terrain maps. Deliberately reuses as much of the
+   pixel editor's own layout/component CSS as possible (toolbar, sidebar,
+   layers list, icon/segmented buttons, vbrush-field family for the noise
+   controls) — the rules below are only what's actually new: the
+   mode-switch control itself, the #map-app shell/layout, and a handful of
+   Map-Generator-specific classes mapGen.js builds for its layer list and
+   layer settings panel.
+   ========================================================================= */
+
+/* Sits right after the brand name in #menu-bar, before the pixel editor's
+   own File/Edit/... menus — .ref-mode-group/.ref-mode-btn already give it
+   the segmented pill look used elsewhere (frame reference view), this
+   just nudges it away from the brand text. */
+.mode-switch {
+  margin-right: 10px;
+}
+
+/* BUG FIX (found while testing Round L): #app-body's own pre-existing
+   `#app-body { display: flex; ... }` rule is an ID selector (specificity
+   1,0,0), which beats the browser's built-in `[hidden] { display: none }`
+   UA rule (an attribute selector, specificity 0,1,0) — so simply setting
+   `.hidden = true` on #app-body/#map-app from mapGen.js's mode switch did
+   NOT actually hide either one; both rendered stacked on top of each
+   other at once, which is what broke the pixel editor's own selection-tool
+   drag tests the first time this mode switch was exercised in a test.
+   These two rules give the `hidden` attribute enough specificity (id +
+   attribute) to win back its normal effect. */
+#app-body[hidden],
+#map-app[hidden] {
+  display: none;
+}
+
+/* Same shell role as #app-body (flex:1 column that fills the space
+   between #menu-bar and #status-bar) — only one of the two is ever
+   visible at a time, toggled via the `hidden` attribute (see the bug-fix
+   rule just above, which is what actually makes that toggle take effect). */
+#map-app {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* Mirrors #toolbar's look exactly; New Map/Export use .btn.primary,
+   brush controls reuse .opacity-control, Paint/Erase reuses
+   .segmented-group/.segmented-btn, and .toolbar-spacer pushes the zoom
+   control to the right edge same as the pixel editor's own toolbar. */
+#map-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  padding: 8px 12px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  flex: none;
+}
+
+#map-main-area {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+
+/* Same footprint as #sidebar; .sidebar-section/.sidebar-section-header
+   inside it are reused as-is for the Layers list and Layer Settings
+   panel. */
+#map-sidebar {
+  width: 240px;
+  flex: none;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+
+/* The Layer Settings section grows to fill whatever's left below the
+   (usually short) Layers list, so its own content doesn't get cramped. */
+#map-layer-settings {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.map-layer-settings-hint {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin: 0;
+}
+
+.map-layer-settings-heading {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+  margin: 14px 0 8px;
+}
+
+.map-layer-settings-heading:first-child {
+  margin-top: 0;
+}
+
+/* Same role/position as #canvas-viewport. */
+#map-canvas-viewport {
+  flex: 1;
+  overflow: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: var(--bg);
+  min-width: 0;
+}
+
+/* Same checkerboard-free "neutral ground" look as the live composite's
+   own BASE_COLOR fallback (a plain tan) — a checkerboard here would read
+   as "transparent", which a terrain map never is. */
+#map-canvas {
+  image-rendering: pixelated;
+  image-rendering: -moz-crisp-edges;
+  image-rendering: crisp-edges;
+  cursor: crosshair;
+  box-shadow: var(--shadow);
+  border: 1px solid var(--border);
+  max-width: 100%;
+  background: #d6c9a4;
+}
+
+/* Each row in #map-layers-list is a .layer-row (reused verbatim); these
+   two are the only genuinely new pieces inside it — a color swatch input
+   and an inline-editable name field, neither of which exists on the
+   pixel editor's own frame/object layer rows. */
+.map-layer-swatch {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: none;
+  cursor: pointer;
+}
+
+.map-layer-name-input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  padding: 2px 4px;
+  border-radius: 4px;
+}
+
+.map-layer-name-input:hover,
+.map-layer-name-input:focus {
+  background: var(--surface);
+}
+
+/* The status bar reports the pixel editor's own cursor position/color —
+   none of that applies in Map Generator mode, so hide it rather than
+   show stale/irrelevant numbers. */
+body[data-mode='map'] #status-bar {
+  display: none;
+}
+
+@media (pointer: coarse) {
+  .map-layer-swatch {
+    width: 28px;
+    height: 28px;
   }
 }

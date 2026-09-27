@@ -11,6 +11,7 @@ function initUI(app) {
   initToolbar(app);
   initToolOptions(app);
   initPaletteSidebar(app);
+  initPersonalPalette(app);
   initColorHistory(app);
   initColorMixer(app);
   initStatusBar(app);
@@ -81,6 +82,7 @@ function initToolOptions(app) {
     rotate: document.getElementById('rotate-options'),
     scale: document.getElementById('scale-options'),
     vbrush: document.getElementById('vbrush-options'),
+    highlightshadow: document.getElementById('highlightshadow-options'),
     stamp: document.getElementById('stamp-options'),
     smoothing: document.getElementById('smoothing-options'),
   };
@@ -91,16 +93,21 @@ function initToolOptions(app) {
     smoothpencil: ['pen', 'smoothing'],
     rect: ['shape'],
     ellipse: ['shape'],
+    triangle: ['shape'],
+    circle: ['shape'],
+    hexagon: ['shape'],
+    octagon: ['shape'],
     blender: ['blender'],
     select: ['select'],
     object: ['object'],
     rotate: ['rotate'],
     scale: ['scale'],
     vbrush: ['vbrush'],
+    highlightshadow: ['highlightshadow'],
     stamp: ['stamp'],
   };
 
-  // ---- Shape (Rectangle/Ellipse): outline vs. filled ----
+  // ---- Shape (Rectangle/Ellipse/Circle/Triangle/Hexagon/Octagon): outline vs. filled ----
   const shapeFillCheckbox = document.getElementById('shape-fill-checkbox');
   shapeFillCheckbox.addEventListener('change', () => {
     app.shapeFill = shapeFillCheckbox.checked;
@@ -381,6 +388,71 @@ function initToolOptions(app) {
     vbrushColorsValue.textContent = vbrushColors.value;
   });
 
+  // ---- Highlight/Shadow: Lighten/Darken switch + radius/strength ----
+  // Roger's ask: "a highlighter and shadowing brush that is based on pixel
+  // size" — see tools/highlightShadowTool.js. Same radius+strength shape as
+  // the Blender brush above, plus a mode switch matching Mirror Pen's own
+  // axis-switch pattern.
+  const hsModeButtons = [document.getElementById('highlightshadow-mode-highlight'), document.getElementById('highlightshadow-mode-shadow')];
+  hsModeButtons.forEach((btn) => {
+    btn.addEventListener('click', () => {
+      app.highlightShadowMode = btn.dataset.hsMode;
+      hsModeButtons.forEach((b) => b.classList.toggle('active', b === btn));
+    });
+  });
+  const hsRadius = document.getElementById('highlightshadow-radius');
+  const hsRadiusValue = document.getElementById('highlightshadow-radius-value');
+  const hsStrength = document.getElementById('highlightshadow-strength');
+  const hsStrengthValue = document.getElementById('highlightshadow-strength-value');
+  hsRadius.addEventListener('input', () => {
+    app.highlightShadowRadius = Number(hsRadius.value);
+    hsRadiusValue.textContent = `${hsRadius.value}px`;
+  });
+  hsStrength.addEventListener('input', () => {
+    app.highlightShadowStrength = Number(hsStrength.value) / 100;
+    hsStrengthValue.textContent = `${hsStrength.value}%`;
+  });
+
+  /**
+   * Project Open (see App.restoreProject/onSettingsRestored) replaces a
+   * whole bunch of app.* settings at once — this pushes every one of THOSE
+   * restored values back into the controls above (and a few from other
+   * sections of this same function) so the toolbar visibly matches what
+   * was actually loaded, instead of continuing to show whatever it last
+   * showed from before the project was opened. Ordinary slider/button
+   * clicks never need this — they set app state directly and update their
+   * own control at the same time, in the same handler, already.
+   */
+  function syncToolOptionsFromApp() {
+    shapeFillCheckbox.checked = app.shapeFill;
+    blenderRadius.value = app.blenderRadius;
+    blenderRadiusValue.textContent = `${app.blenderRadius}px`;
+    blenderStrength.value = Math.round(app.blenderStrength * 100);
+    blenderStrengthValue.textContent = `${blenderStrength.value}%`;
+    penSizeButtons.forEach((b) => b.classList.toggle('active', Number(b.dataset.size) === app.brushSize));
+    mirrorAxisButtons.forEach((b) => b.classList.toggle('active', b.dataset.axis === app.mirrorAxis));
+    vbrushRadius.value = app.vbrushRadius;
+    vbrushRadiusValue.textContent = `${app.vbrushRadius}px`;
+    vbrushColors.value = app.vbrushColorLimit;
+    vbrushColorsValue.textContent = `${app.vbrushColorLimit}`;
+    hsModeButtons.forEach((b) => b.classList.toggle('active', b.dataset.hsMode === app.highlightShadowMode));
+    hsRadius.value = app.highlightShadowRadius;
+    hsRadiusValue.textContent = `${app.highlightShadowRadius}px`;
+    hsStrength.value = Math.round(app.highlightShadowStrength * 100);
+    hsStrengthValue.textContent = `${hsStrength.value}%`;
+    stampAnchorButtons.forEach((b) => b.classList.toggle('active', b.dataset.stampAnchor === app.stampAnchorMode));
+    stampBlendButtons.forEach((b) => b.classList.toggle('active', b.dataset.stampBlend === app.stampBlendMode));
+    smoothingModeButtons.forEach((b) => b.classList.toggle('active', b.dataset.smoothingMode === app.smoothingMode));
+    smoothingTimingButtons.forEach((b) => b.classList.toggle('active', b.dataset.smoothingTiming === app.smoothingTiming));
+    smoothingEvenStepCheckbox.checked = app.smoothingEvenStep;
+    smoothingMirrorHalvesCheckbox.checked = app.smoothingMirrorHalves;
+    syncSmoothingSymmetricVisibility();
+    applyOpacity(app, Math.round(app.opacity * 100));
+    highlightActiveTool(app);
+    syncVisibility();
+  }
+  app.onSettingsRestored(syncToolOptionsFromApp);
+
   function syncVisibility() {
     const shown = VISIBILITY[app.toolManager.activeId] || [];
     Object.entries(panels).forEach(([key, panel]) => {
@@ -549,6 +621,48 @@ function initPaletteSidebar(app) {
   });
 }
 
+// ---- Personal Palette: Roger's flat, always-visible list of colors --------
+// (see personalPalette.js — deliberately separate from the multi-palette
+// switcher initPaletteSidebar wires above)
+
+function initPersonalPalette(app) {
+  const grid = document.getElementById('personal-palette-grid');
+  const addBtn = document.getElementById('personal-palette-add');
+
+  function render() {
+    grid.innerHTML = '';
+    app.personalPalette.getColors().forEach((hex, index) => {
+      const swatch = document.createElement('button');
+      swatch.type = 'button';
+      swatch.className = 'swatch';
+      swatch.style.backgroundColor = hex;
+      swatch.title = hex;
+      swatch.setAttribute('aria-label', `Personal palette color ${hex}`);
+      swatch.addEventListener('click', () => app.setBaseColor(hex));
+
+      const deleteBtn = document.createElement('span');
+      deleteBtn.className = 'swatch-delete';
+      deleteBtn.textContent = '×';
+      deleteBtn.title = 'Remove from personal palette';
+      deleteBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        app.personalPalette.removeColor(index);
+      });
+      swatch.appendChild(deleteBtn);
+      grid.appendChild(swatch);
+    });
+  }
+
+  // Adds whatever the Current Color section is showing right now — the same
+  // color palette clicks/the eyedropper/History swatches/Mix cells all set —
+  // rather than a separate color picker of its own, so "+" always means
+  // "keep the color I'm painting with right now."
+  addBtn.addEventListener('click', () => app.personalPalette.addColor(app.palette.getActiveColor()));
+
+  app.personalPalette.onChange(render);
+  render();
+}
+
 // ---- History: most-recently-used colors ------------------------------------
 
 function initColorHistory(app) {
@@ -702,6 +816,11 @@ function initShortcuts(app) {
     const inTextField = /^(input|textarea)$/i.test(document.activeElement.tagName);
     if (inTextField) return; // don't hijack typing in the hex box, etc.
 
+    // Map Generator mode has its own (much smaller) keyboard handling —
+    // see mapGen.js. Suspend every pixel-editor shortcut while it's shown
+    // so e.g. its own Ctrl+Z/Ctrl+Y don't fight with this handler.
+    if (document.body.dataset.mode === 'map') return;
+
     // Deselect — Roger: "I need a way to clear selection box, it gets
     // stuck on the screen." Switching to a non-selection tool already
     // clears it too (see toolManager.js's SELECTION_PRESERVING_TOOL_IDS),
@@ -765,6 +884,23 @@ function initShortcuts(app) {
       case 'o':
         selectTool(app, 'ellipse');
         break;
+      // Triangle/Circle/Hexagon/Octagon: no mnemonic beyond Circle's own
+      // initial (C — free, and Ellipse already had first claim on the
+      // "round shape" mnemonic letters); the rest are just free letters,
+      // same "no mnemonic left, just pick a free key" situation as
+      // Rectangle's U and Resize Selection's J.
+      case 'n':
+        selectTool(app, 'triangle');
+        break;
+      case 'c':
+        selectTool(app, 'circle');
+        break;
+      case 'x':
+        selectTool(app, 'hexagon');
+        break;
+      case 'z':
+        selectTool(app, 'octagon');
+        break;
       case 'm':
         selectTool(app, 'blender');
         break;
@@ -796,6 +932,12 @@ function initShortcuts(app) {
         break;
       case 'v':
         selectTool(app, 'vbrush');
+        break;
+      // Highlight/Shadow: the last free letter in the alphabet by the time
+      // this tool was added — same "no mnemonic left, just pick a free key"
+      // situation as Rectangle's U and Resize Selection's J.
+      case 'w':
+        selectTool(app, 'highlightshadow');
         break;
       case 'p':
         selectTool(app, 'stamp');

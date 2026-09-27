@@ -227,6 +227,37 @@ function initStampEditorPanel(app) {
   });
   canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 
+  // Touch: same one-finger-paints behavior as the main canvas (see
+  // app.js's _wireTouchEvents) — `cellFromEvent` only ever reads
+  // clientX/clientY, so a Touch object works here with no changes needed
+  // to the cell math itself, just a small clientX/clientY shim and the
+  // preventDefault that stops the dialog/page from scrolling while
+  // painting a cell. No pinch-zoom here — this editor grid has its own
+  // fixed cell size, not a zoomable viewport like the main canvas.
+  canvas.addEventListener(
+    'touchstart',
+    (e) => {
+      e.preventDefault();
+      painting = true;
+      paintCellAt({ clientX: e.touches[0].clientX, clientY: e.touches[0].clientY });
+    },
+    { passive: false }
+  );
+  canvas.addEventListener(
+    'touchmove',
+    (e) => {
+      e.preventDefault();
+      if (painting) paintCellAt({ clientX: e.touches[0].clientX, clientY: e.touches[0].clientY });
+    },
+    { passive: false }
+  );
+  canvas.addEventListener('touchend', () => {
+    painting = false;
+  });
+  canvas.addEventListener('touchcancel', () => {
+    painting = false;
+  });
+
   editModeButtons.forEach((btn) => {
     btn.addEventListener('click', () => {
       editModeButtons.forEach((b) => b.classList.toggle('active', b === btn));

@@ -64,6 +64,12 @@ function handleAction(action, app) {
     case 'import-spritesheet':
       app.importSpriteSheetFromDisk();
       break;
+    case 'save-project':
+      app.saveProjectToDisk();
+      break;
+    case 'open-project':
+      app.openProjectFromDisk();
+      break;
     case 'resize-canvas':
       app.promptResizeCanvas();
       break;

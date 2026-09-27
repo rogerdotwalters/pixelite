@@ -132,6 +132,44 @@ class PixelBuffer {
     return new PixelBuffer(imageData.width, imageData.height, new Uint8ClampedArray(imageData.data));
   }
 
+  /**
+   * Round-trips this buffer's raw RGBA bytes through base64 — used by
+   * Project Save/Open (see App.serializeProject/restoreProject in app.js)
+   * to embed every layer's exact pixels straight into the project's JSON,
+   * synchronously and losslessly, with no PNG re-encode step (which would
+   * need an async canvas.toBlob round trip per layer — awkward for
+   * serializing a whole project's worth of layers/frames in one go, and
+   * unnecessary: a project file is a working save, not a distribution
+   * format, so raw-bytes-as-base64's larger size is an acceptable trade for
+   * "just a plain string, ready to JSON.stringify").
+   */
+  toBase64() {
+    return PixelBuffer._bytesToBase64(this.data);
+  }
+
+  /** Inverse of toBase64() — rebuilds a same-size PixelBuffer from its base64 string. */
+  static fromBase64(base64, width, height) {
+    return new PixelBuffer(width, height, PixelBuffer._base64ToBytes(base64));
+  }
+
+  /** btoa() only accepts a "binary string" (one char per byte), and refuses to be called with a giant argument list — chunked so a large layer's data (a big canvas, or several frames) doesn't blow either limit. */
+  static _bytesToBase64(bytes) {
+    let binary = '';
+    const chunkSize = 0x8000;
+    for (let i = 0; i < bytes.length; i += chunkSize) {
+      binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize));
+    }
+    return btoa(binary);
+  }
+
+  /** Inverse of _bytesToBase64 above. */
+  static _base64ToBytes(base64) {
+    const binary = atob(base64);
+    const bytes = new Uint8ClampedArray(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    return bytes;
+  }
+
   /** Creates a new, fully transparent PixelBuffer of the given size. */
   static createBlank(width, height) {
     return new PixelBuffer(width, height);

@@ -13,6 +13,16 @@
  * frame counts a pixel-art animation realistically has, and it means every
  * thumbnail (including whatever frame you just duplicated FROM) is always
  * showing the current pixels, with no separate "refresh" step to remember.
+ *
+ * Roger's ask: "select the slides on the bottom with a checkmark" — each
+ * tile also carries a small checkbox (`.filmstrip-check`) toggling that
+ * frame's `previewEnabled` flag (see spriteProject.js's Frame class). It's
+ * wired separately from the tile's own click handler (which navigates to
+ * that frame) and stops the click from bubbling there, so checking a frame
+ * never also jumps you to it, and clicking to edit an unchecked frame never
+ * un-checks it — the two are completely independent. What's checked right
+ * now decides what the Preview panel loops through and what "Export as
+ * GIF" bakes — see animationPreview.js.
  */
 
 function initFilmstrip(app) {
@@ -76,6 +86,26 @@ function initFilmstrip(app) {
     label.className = 'filmstrip-number';
     label.textContent = String(index + 1);
     tile.appendChild(label);
+
+    // Include-in-preview/GIF checkmark — see the class header comment. A
+    // plain hover/always-visible <span>, same convention as `.filmstrip-
+    // delete` right below it (a real nested <button role="checkbox">
+    // would be invalid/unfocusable markup inside this tile's own outer
+    // <button>), with `aria-hidden` since there's no way to make it
+    // properly keyboard-operable nested this way — same tradeoff this
+    // codebase already accepted for the delete "×".
+    const checkBtn = document.createElement('span');
+    checkBtn.className = 'filmstrip-check';
+    checkBtn.classList.toggle('checked', !!frame.previewEnabled);
+    checkBtn.setAttribute('aria-hidden', 'true');
+    checkBtn.title = frame.previewEnabled ? 'In the preview/GIF (click to exclude)' : 'Not in the preview/GIF (click to include)';
+    checkBtn.innerHTML =
+      '<svg viewBox="0 0 24 24" width="10" height="10" aria-hidden="true"><path d="M4 12.5 L9.5 18 L20 5" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" /></svg>';
+    checkBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      app.toggleFramePreview(index);
+    });
+    tile.appendChild(checkBtn);
 
     // Hover-revealed, same pattern as the palette swatches' delete button.
     const deleteBtn = document.createElement('span');

@@ -1,5 +1,13 @@
 <!DOCTYPE html>
 <meta charset="UTF-8" />
+<!-- Without this, mobile browsers render the page at a fixed ~980px
+     "desktop" virtual width and let the person pinch-zoom the WHOLE page
+     instead of just the canvas — every @media (max-width: ...) rule in
+     style.css would silently never match on an actual phone, since the
+     reported viewport width would never actually be narrow. This is what
+     makes "the app works on mobile" possible at all; it has zero effect
+     on desktop, which ignores it entirely. -->
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <title>Pixel Art Editor</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" />
@@ -11,6 +19,20 @@
 <div id="menu-bar">
   <span class="brand">Pixel Art Editor</span>
 
+  <!-- Roger's ask: "a separate tooling program" for generating game maps
+       (Perlin noise + math nodes run over manually painted layers). Lives
+       as a second MODE of this same single-page app rather than a second
+       HTML file, so it shares the menu bar/shell — see js/mapGen.js. Only
+       one of #app-body / #map-app is ever visible at a time; switching
+       sets document.body.dataset.mode, which js/ui.js's initShortcuts also
+       reads to suspend every pixel-tool keyboard shortcut while Map
+       Generator is showing (so pressing e.g. "S" there doesn't silently
+       change the hidden pixel editor's active tool). -->
+  <div class="mode-switch ref-mode-group" role="group" aria-label="Editor mode">
+    <button type="button" class="ref-mode-btn active" data-app-mode="pixel">Pixel Art</button>
+    <button type="button" class="ref-mode-btn" data-app-mode="map">Map Generator</button>
+  </div>
+
   <div class="menu">
     <button class="menu-trigger">File</button>
     <div class="menu-dropdown">
@@ -18,6 +40,13 @@
       <button class="menu-item" data-action="open">Open…</button>
       <button class="menu-item" data-action="import-frames">Import Frames (PNGs)&hellip;</button>
       <button class="menu-item" data-action="import-spritesheet">Import Sprite Sheet&hellip;</button>
+      <div class="menu-divider"></div>
+      <!-- Save/Open Project: the ONLY round trip that keeps every layer (on
+           every frame), the personal palette, and the current tool/brush
+           settings + zoom — a plain image Open/Export never does either
+           direction of that. See App.serializeProject/restoreProject. -->
+      <button class="menu-item" data-action="save-project">Save Project&hellip;</button>
+      <button class="menu-item" data-action="open-project">Open Project&hellip;</button>
       <div class="menu-divider"></div>
       <button class="menu-item" data-action="export-png">Export as PNG</button>
       <button class="menu-item" data-action="export-jpg">Export as JPG</button>
@@ -100,6 +129,32 @@
           <ellipse cx="12" cy="12" rx="8.5" ry="6" fill="none" stroke="currentColor" stroke-width="2.2" />
         </svg>
       </button>
+      <!-- Triangle/Circle/Hexagon/Octagon: same click-drag-a-bounding-box
+           model as Rectangle/Ellipse above (see tools/shapeTool.js) — Shift
+           constrains the box to a square, which turns each into its
+           perfectly regular form (equilateral triangle, true circle,
+           regular hexagon/octagon) instead of one stretched to fit
+           whatever box was dragged. -->
+      <button class="tool-btn" data-tool="hexagon" title="Hexagon (X) — hold Shift for a regular hexagon">
+        <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+          <polygon points="12,3 19.8,7.5 19.8,16.5 12,21 4.2,16.5 4.2,7.5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round" />
+        </svg>
+      </button>
+      <button class="tool-btn" data-tool="octagon" title="Octagon (Z) — hold Shift for a regular octagon">
+        <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+          <polygon points="20.3,8.6 20.3,15.4 15.4,20.3 8.6,20.3 3.7,15.4 3.7,8.6 8.6,3.7 15.4,3.7" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round" />
+        </svg>
+      </button>
+      <button class="tool-btn" data-tool="circle" title="Circle (C) — hold Shift for a perfect circle">
+        <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+          <circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="2.2" />
+        </svg>
+      </button>
+      <button class="tool-btn" data-tool="triangle" title="Triangle (N) — hold Shift for an equilateral triangle">
+        <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+          <polygon points="12,4 20,20 4,20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round" />
+        </svg>
+      </button>
     </div>
 
     <div class="toolbar-divider" aria-hidden="true"></div>
@@ -122,6 +177,17 @@
           <line x1="12" y1="3" x2="12" y2="21" stroke="currentColor" stroke-width="1.3" stroke-dasharray="2,2" />
           <path d="M6 18 L9.5 15 L9.5 8 L6 5 Z" fill="currentColor" />
           <path d="M18 18 L14.5 15 L14.5 8 L18 5 Z" fill="currentColor" />
+        </svg>
+      </button>
+      <!-- Highlight/Shadow: Roger's ask — "a hight lighter and shadowing
+           brush that is based on pixel size" — one combined Dodge/Burn-
+           style brush; the Lighten/Darken switch lives in its own options
+           strip below (#highlightshadow-options), same pattern as Mirror
+           Pen's axis switch. See tools/highlightShadowTool.js. -->
+      <button class="tool-btn" data-tool="highlightshadow" title="Highlight/Shadow (W) — lightens or darkens existing pixels within a size-based brush radius, like a combined Dodge/Burn">
+        <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+          <circle cx="12" cy="12" r="5" fill="none" stroke="currentColor" stroke-width="2" />
+          <path d="M12 3 L12 5.5 M12 18.5 L12 21 M3 12 L5.5 12 M18.5 12 L21 12 M5.6 5.6 L7.4 7.4 M16.6 16.6 L18.4 18.4 M5.6 18.4 L7.4 16.6 M16.6 7.4 L18.4 5.6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
         </svg>
       </button>
     </div>
@@ -214,6 +280,24 @@
         <button type="button" class="segmented-btn active" id="mirror-axis-x" data-axis="x" title="Mirror left-right, across the vertical center line">X</button>
         <button type="button" class="segmented-btn" id="mirror-axis-y" data-axis="y" title="Mirror top-bottom, across the horizontal center line">Y</button>
       </div>
+    </div>
+
+    <!-- Highlight/Shadow only: Lighten vs. Darken, plus the same
+         radius/strength pair the Blender brush uses (see
+         tools/highlightShadowTool.js — radius is "based on pixel size",
+         strength is how far toward white/black one dab pushes at most). -->
+    <div class="tool-options" id="highlightshadow-options" hidden>
+      <label>Mode</label>
+      <div class="segmented-group" role="group" aria-label="Highlight or shadow">
+        <button type="button" class="segmented-btn active" id="highlightshadow-mode-highlight" data-hs-mode="highlight" title="Lighten pixels toward white">Highlight</button>
+        <button type="button" class="segmented-btn" id="highlightshadow-mode-shadow" data-hs-mode="shadow" title="Darken pixels toward black">Shadow</button>
+      </div>
+      <label for="highlightshadow-radius">Radius</label>
+      <input id="highlightshadow-radius" type="range" min="1" max="12" value="4" />
+      <span id="highlightshadow-radius-value">4px</span>
+      <label for="highlightshadow-strength">Strength</label>
+      <input id="highlightshadow-strength" type="range" min="1" max="100" value="50" />
+      <span id="highlightshadow-strength-value">50%</span>
     </div>
 
     <!-- Smoothing Pencil only: which algorithm(s) run over the freehand
@@ -423,6 +507,21 @@
       </div>
 
       <!-- ================================================================
+           Personal Palette: Roger's ask — "a new section that is a
+           personal palette," saved with the project file. Deliberately
+           separate from the Palette section above (which switches between
+           several NAMED palettes, including the built-in theme ramps) —
+           this is just one flat, always-visible list of your own colors.
+           See personalPalette.js. "+" adds the CURRENT color (the same one
+           shown in the Current Color section below); × removes a swatch.
+           ================================================================ -->
+      <div class="sidebar-section">
+        <h2>Personal Palette</h2>
+        <div id="personal-palette-grid"></div>
+        <button type="button" class="btn primary" id="personal-palette-add" title="Add the current color to your personal palette">+ Add Current Color</button>
+      </div>
+
+      <!-- ================================================================
            Current color: the palette grid itself no longer highlights a
            "selected" swatch — this is the one place that shows what you're
            about to paint with. Updated by palette clicks, the History
@@ -512,6 +611,13 @@
         <div class="sidebar-section-header">
           <h2>Layers</h2>
           <div class="layers-header-actions">
+            <!-- Roger's ask: "a toggleable view that turns anchor points on
+                 and off on the layers. So that I can easily click and drag
+                 all the layers without having to switch." See
+                 layerAnchorsOverlay.js (drawing) + app.js's "layer anchors"
+                 section (hit-testing/drag) — works no matter which tool is
+                 currently active. -->
+            <button type="button" class="icon-btn" id="layer-anchors-toggle" title="Toggle anchor points — shows a draggable handle on every layer at once, so you can move any layer directly without selecting it first or switching tools" aria-label="Toggle layer anchor points">⚓</button>
             <button type="button" class="icon-btn" id="layer-array-add" title="Repeat the active layer into an array of copies (orbit + position increment)" aria-label="Layer array">⧉</button>
             <button type="button" class="icon-btn" id="layer-add" title="Add a new blank layer above the active one" aria-label="Add layer">+</button>
           </div>
@@ -540,6 +646,7 @@
           <canvas id="ref-canvas-next-overlay" class="ref-overlay-canvas" hidden></canvas>
           <canvas id="selection-overlay-canvas" class="ref-overlay-canvas" hidden></canvas>
           <canvas id="object-overlay-canvas" class="ref-overlay-canvas" hidden></canvas>
+          <canvas id="anchor-overlay-canvas" class="ref-overlay-canvas" hidden></canvas>
         </div>
 
         <div class="ref-pane" id="ref-pane-next" hidden>
@@ -549,6 +656,31 @@
         </div>
       </div>
     </div>
+
+    <!-- ================================================================
+         Preview panel: loops through whichever frames are checked (the
+         checkmark on each filmstrip tile below) at an adjustable
+         frames-per-second — a live look at the animation without
+         leaving the editor — plus a button that bakes those same
+         checked frames into a downloadable .gif at that FPS. See
+         animationPreview.js / gifEncoder.js.
+         ================================================================ -->
+    <aside id="preview-panel">
+      <div class="sidebar-section">
+        <h2>Preview</h2>
+        <div class="preview-stage-wrap" id="preview-stage-wrap">
+          <canvas id="preview-canvas"></canvas>
+          <p class="preview-empty-hint" id="preview-empty-hint">Check a frame below to preview it here.</p>
+        </div>
+        <div class="preview-controls-row">
+          <button type="button" class="icon-btn" id="preview-play-toggle" title="Play/pause the preview" aria-label="Play or pause the preview">&#9654;</button>
+          <label for="preview-fps">FPS</label>
+          <input id="preview-fps" type="range" min="1" max="30" value="8" />
+          <span id="preview-fps-value">8 fps</span>
+        </div>
+        <button type="button" class="btn primary preview-export-btn" id="preview-export-gif" title="Bake the checked frames into a downloadable animated GIF at the current FPS">Export as GIF&hellip;</button>
+      </div>
+    </aside>
   </div>
 
   <!-- ==================================================================
@@ -560,6 +692,103 @@
     <div id="filmstrip-track"></div>
   </div>
 </div>
+
+<!-- ==========================================================================
+     Map Generator — a separate foundational tool for building game maps
+     (100x100 and up): Perlin noise per layer, reshaped by an optional chain
+     of Math nodes, biased by whatever you paint directly onto the map for
+     that layer. Every layer (Water/Grass by default, "+" adds custom ones)
+     contributes its own color wherever its noise says it should, and every
+     layer's contribution blends together live on the canvas. Hidden unless
+     the mode switch above is set to "Map Generator" — see js/mapGen.js for
+     all of the logic; this is just the shell + New Map / Export dialogs.
+     ========================================================================== -->
+<div id="map-app" hidden>
+  <div id="map-toolbar">
+    <button type="button" class="btn primary" id="map-new-btn" title="Start a fresh map at a chosen size">New Map&hellip;</button>
+
+    <div class="opacity-control">
+      <label for="map-brush-radius">Brush</label>
+      <input id="map-brush-radius" type="range" min="1" max="40" value="10" />
+      <span id="map-brush-radius-value">10px</span>
+    </div>
+    <div class="opacity-control">
+      <label for="map-brush-strength">Strength</label>
+      <input id="map-brush-strength" type="range" min="5" max="100" value="35" />
+      <span id="map-brush-strength-value">35%</span>
+    </div>
+    <div class="segmented-group" role="group" aria-label="Paint or erase">
+      <button type="button" class="segmented-btn active" data-map-paint-mode="paint" title="Paint: biases the noise TOWARD this layer here">Paint</button>
+      <button type="button" class="segmented-btn" data-map-paint-mode="erase" title="Erase: biases the noise AWAY FROM this layer here">Erase</button>
+    </div>
+
+    <div class="toolbar-spacer"></div>
+
+    <button type="button" class="btn primary" id="map-export-btn" title="Export a JSON grid of terrain IDs (plus a legend) for use in a game engine">Export Map&hellip;</button>
+
+    <div class="zoom-control">
+      <button id="map-zoom-out" class="icon-btn" title="Zoom out (-)">&#8722;</button>
+      <span id="map-status-zoom">100%</span>
+      <button id="map-zoom-in" class="icon-btn" title="Zoom in (+)">&#43;</button>
+    </div>
+  </div>
+
+  <div id="map-main-area">
+    <aside id="map-sidebar">
+      <div class="sidebar-section">
+        <div class="sidebar-section-header">
+          <h2>Layers</h2>
+          <button type="button" class="icon-btn" id="map-layer-add" title="Add a new custom terrain/water layer" aria-label="Add layer">+</button>
+        </div>
+        <div id="map-layers-list" class="layers-list"></div>
+      </div>
+
+      <!-- Everything below reshapes whichever layer is selected above:
+           its own Perlin noise (Scale/Octaves/Persistence/Seed, same fbm
+           math as the V Brush pipeline's Noise node), how strongly it
+           counts once several layers overlap ("Strength"), and an
+           optional chain of Math nodes run over the noise+paint result
+           before it's clamped 0-1 and used as this layer's weight. -->
+      <div class="sidebar-section" id="map-layer-settings">
+        <h2>Layer Settings</h2>
+        <p class="map-layer-settings-hint" id="map-layer-settings-hint">Add or select a layer above to edit its noise.</p>
+      </div>
+    </aside>
+
+    <div id="map-canvas-viewport">
+      <canvas id="map-canvas"></canvas>
+    </div>
+  </div>
+</div>
+
+<!-- ========================================================================
+     New Map dialog — Map Generator's "New Map…" button. Same simple
+     Width/Height shape as the pixel editor's own New Image dialog, just
+     defaulting to 100x100 (Roger's own example size) instead of 32x32,
+     and capped at 400 per side to keep the live Perlin recompute
+     interactive on every paint stroke — see the Known Gaps note in the
+     architecture notes about very large maps.
+     ======================================================================== -->
+<dialog id="new-map-dialog">
+  <form id="new-map-form">
+    <h2>New Map</h2>
+    <div class="field-row">
+      <div class="field">
+        <label for="new-map-width">Width</label>
+        <input id="new-map-width" type="number" min="8" max="400" value="100" required />
+      </div>
+      <div class="field">
+        <label for="new-map-height">Height</label>
+        <input id="new-map-height" type="number" min="8" max="400" value="100" required />
+      </div>
+    </div>
+    <p class="resize-canvas-hint">Starts fresh with a Water and a Grass layer. This replaces the current map and can't be undone.</p>
+    <div class="dialog-actions">
+      <button type="button" class="btn" id="new-map-cancel">Cancel</button>
+      <button type="submit" class="btn primary">Create</button>
+    </div>
+  </form>
+</dialog>
 
 <!-- ========================================================================
      Status bar: current color, opacity, zoom, cursor position
@@ -579,6 +808,7 @@
      ======================================================================== -->
 <input type="file" id="open-file-input" accept="image/png,image/jpeg" hidden />
 <input type="file" id="open-palette-input" accept="application/json,.json" hidden />
+<input type="file" id="open-project-input" accept="application/json,.paeproj" hidden />
 <input type="file" id="import-frames-input" accept="image/png,image/jpeg" multiple hidden />
 <input type="file" id="import-spritesheet-input" accept="image/png,image/jpeg" hidden />
 
@@ -943,6 +1173,7 @@
 <script src="js/geometry.js"></script>
 <script src="js/history.js"></script>
 <script src="js/palette.js"></script>
+<script src="js/personalPalette.js"></script>
 <script src="js/colorMixer.js"></script>
 <script src="js/colorHistory.js"></script>
 <script src="js/layer.js"></script>
@@ -967,6 +1198,7 @@
 <script src="js/tools/rotateSelectionTool.js"></script>
 <script src="js/tools/resizeSelectionTool.js"></script>
 <script src="js/tools/vBrushTool.js"></script>
+<script src="js/tools/highlightShadowTool.js"></script>
 <script src="js/tools/stampBrushTool.js"></script>
 <script src="js/toolManager.js"></script>
 <script src="js/canvasView.js"></script>
@@ -977,7 +1209,11 @@
 <script src="js/ui.js"></script>
 <script src="js/referenceBar.js"></script>
 <script src="js/filmstrip.js"></script>
+<script src="js/gifEncoder.js"></script>
+<script src="js/animationPreview.js"></script>
 <script src="js/layersPanel.js"></script>
 <script src="js/selectionOverlay.js"></script>
 <script src="js/objectOverlay.js"></script>
+<script src="js/layerAnchorsOverlay.js"></script>
+<script src="js/mapGen.js"></script>
 <script src="js/app.js"></script>

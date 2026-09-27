@@ -23,6 +23,7 @@
 function initLayersPanel(app) {
   const list = document.getElementById('layers-list');
   const addBtn = document.getElementById('layer-add');
+  const anchorsToggle = document.getElementById('layer-anchors-toggle');
 
   function makeRow(layer, index, frame) {
     const row = document.createElement('div');
@@ -119,6 +120,19 @@ function initLayersPanel(app) {
   }
 
   addBtn.addEventListener('click', () => app.addLayer());
+
+  // Roger's ask: "a toggleable view that turns anchor points on and off on
+  // the layers" — see app.js's toggleAnchorPoints/layerAnchorsOverlay.js.
+  // This button's own "active" state is the only thing about the toggle
+  // that lives here; the actual overlay drawing and drag logic live in
+  // those other two files.
+  anchorsToggle.addEventListener('click', () => app.toggleAnchorPoints());
+  function syncAnchorsToggle() {
+    anchorsToggle.classList.toggle('active', app.anchorPointsVisible);
+  }
+  app.onChange(syncAnchorsToggle);
+  syncAnchorsToggle();
+
   app.onChange(render);
   render();
 }

@@ -82,8 +82,34 @@ class VBrushTool extends window.PAE.Tool {
 
     const pipeline = ctx.getVBrushPipeline ? ctx.getVBrushPipeline() : null;
     const nodes = pipeline && pipeline.nodes ? pipeline.nodes : [];
-
     const buffer = ctx.buffer;
+
+    // Roger's ask: "let the brush size go down to 1px" for precise
+    // single-pixel V Brush touch-ups. The Radius slider's minimum was
+    // ALREADY 1 — but the general circular-dab math below (identical in
+    // shape to the Blender brush's own dab) centers its circle on the
+    // corner between the clicked pixel and its up-left neighbor rather
+    // than on the clicked pixel's own center (an existing, harmless-at-
+    // normal-sizes half-pixel bias — see the loop below), so radius=1's
+    // tiny circle actually caught FOUR pixels (a lopsided 2x2 block:
+    // the clicked pixel plus its neighbors above, left, and above-left),
+    // never just the one pixel under the cursor. That's not what a "size
+    // 1" brush should mean, especially now that it's meant to double as a
+    // genuine single-pixel mode — special-cased here to paint EXACTLY the
+    // one pixel at (cx, cy) and nothing else.
+    if (radius <= 1) {
+      let color;
+      if (nodes.length) {
+        const seed = (VBrushTool._hash(cx, cy) % 1000) / 999;
+        color = window.PAE.VBrushPipeline.run(nodes, seed, cx, cy, palette, { width: buffer.width, height: buffer.height });
+      } else {
+        color = palette[VBrushTool._hash(cx, cy) % palette.length];
+      }
+      buffer.blendPixel(cx, cy, color, opacity);
+      ctx.requestRender();
+      return;
+    }
+
     const r2 = radius * radius;
     const minX = Math.max(0, Math.floor(cx - radius));
     const maxX = Math.min(buffer.width - 1, Math.ceil(cx + radius));
